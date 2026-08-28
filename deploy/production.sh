@@ -13,7 +13,7 @@ cd "$SITE"
 export PATH="$NODE_BIN:$PATH" COMPOSER_ALLOW_SUPERUSER=1
 git fetch --prune origin main
 git reset --hard origin/main
-git clean -fd
+git clean -fd -e .well-known/
 "$PHP" "$COMPOSER" install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-progress
 npm ci --no-audit --no-fund
 npm run build
