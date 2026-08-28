@@ -21,6 +21,8 @@ npm run build
 "$PHP" artisan optimize:clear
 "$PHP" artisan optimize
 "$PHP" artisan queue:restart
+chown -R www:www storage bootstrap/cache public/build
+chmod -R ug+rwX storage bootstrap/cache
 if [[ -n "${HEALTHCHECK_URL:-}" ]]; then curl --fail --silent --show-error --retry 5 "$HEALTHCHECK_URL" >/dev/null; fi
 trap - ERR
 echo "DEPLOY_SUCCESS: $(git rev-parse --short HEAD)"
