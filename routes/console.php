@@ -28,7 +28,7 @@ Schedule::call(function (): void {
                 : [];
             try {
                 app(TelegramClient::class)->sendBroadcast(
-                    $recipient->user->telegram_id,
+                    $recipient->chat_id ?: $recipient->user?->telegram_id,
                     '<b>'.e($broadcast->title)."</b>\n\n".$broadcast->message,
                     $broadcast->image_url,
                     $keyboard,

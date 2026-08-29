@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Product;
+use App\Models\RequiredChannel;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -60,11 +61,30 @@ class AdminTest extends TestCase
         $this->actingAs($admin)->post('/admin/notifications', [
             'title' => 'New products',
             'message' => 'Visit the store for our latest products.',
+            'audience' => 'users',
             'button_text' => 'Open Store',
             'button_url' => 'https://t.me/example_bot',
         ])->assertRedirect();
 
         $this->assertDatabaseHas('notification_broadcasts', ['title' => 'New products', 'recipient_count' => 1]);
         $this->assertDatabaseHas('notification_recipients', ['user_id' => $customer->id, 'status' => 'pending']);
+    }
+
+    public function test_admin_can_target_channel_and_group_without_private_users(): void
+    {
+        $admin = User::factory()->create();
+        $admin->forceFill(['is_admin' => true])->save();
+        RequiredChannel::query()->create(['chat_id' => '-1001', 'name' => 'Shop Channel', 'join_url' => 'https://t.me/shop', 'is_active' => true]);
+        RequiredChannel::query()->create(['chat_id' => '-1002', 'name' => 'Shop Group', 'join_url' => 'https://t.me/group', 'is_active' => true]);
+
+        $this->actingAs($admin)->post('/admin/notifications', [
+            'title' => 'Community update',
+            'message' => 'A new update is available.',
+            'audience' => 'communities',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('notification_recipients', ['chat_id' => '-1001', 'recipient_name' => 'Shop Channel']);
+        $this->assertDatabaseHas('notification_recipients', ['chat_id' => '-1002', 'recipient_name' => 'Shop Group']);
+        $this->assertDatabaseCount('notification_recipients', 2);
     }
 }
