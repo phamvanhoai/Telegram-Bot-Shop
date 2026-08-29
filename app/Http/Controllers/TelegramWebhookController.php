@@ -61,6 +61,17 @@ class TelegramWebhookController extends Controller
         $chatType = $message['chat']['type'] ?? $callback['message']['chat']['type'] ?? null;
         $this->callbackMessageId = isset($callback['message']['message_id']) ? (int) $callback['message']['message_id'] : null;
         $action = $callback['data'] ?? $message['text'] ?? '';
+        $action = match (strtolower(trim((string) $action))) {
+            '/start', '/menu' => '/start',
+            '/store', '/products' => 'products',
+            '/wallet', '/balance' => 'balance',
+            '/deposit' => 'deposit',
+            '/orders' => 'orders',
+            '/track' => 'track_order',
+            '/account' => 'account',
+            '/support' => 'support',
+            default => $action,
+        };
         if ($callback) {
             $telegram->answerCallback($callback['id']);
         }

@@ -172,4 +172,22 @@ class ExampleTest extends TestCase
 
         Http::assertNothingSent();
     }
+
+    public function test_store_command_opens_the_product_catalog(): void
+    {
+        config(['services.telegram.token' => 'test-token', 'services.telegram.webhook_secret' => 'valid-secret']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true, 'result' => []])]);
+
+        $this->withHeader('X-Telegram-Bot-Api-Secret-Token', 'valid-secret')->postJson('/webhooks/telegram', [
+            'update_id' => 4,
+            'message' => [
+                'text' => '/store',
+                'chat' => ['id' => 987, 'type' => 'private'],
+                'from' => ['id' => 987, 'first_name' => 'Command User'],
+            ],
+        ])->assertOk();
+
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/sendPhoto')
+            && str_contains((string) $request['caption'], 'STORE / CATALOG'));
+    }
 }
