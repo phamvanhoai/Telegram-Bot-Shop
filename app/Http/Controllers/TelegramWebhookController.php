@@ -58,10 +58,14 @@ class TelegramWebhookController extends Controller
         }
 
         $chatId = $message['chat']['id'] ?? $callback['message']['chat']['id'] ?? null;
+        $chatType = $message['chat']['type'] ?? $callback['message']['chat']['type'] ?? null;
         $this->callbackMessageId = isset($callback['message']['message_id']) ? (int) $callback['message']['message_id'] : null;
         $action = $callback['data'] ?? $message['text'] ?? '';
         if ($callback) {
             $telegram->answerCallback($callback['id']);
+        }
+        if ($chatType !== 'private') {
+            return;
         }
         if (! in_array($action, ['/start', 'verify'], true)) {
             $missingChannels = $this->missingChannels($telegram, $user);

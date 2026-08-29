@@ -45,7 +45,7 @@ class ExampleTest extends TestCase
         ]);
         $this->withHeader('X-Telegram-Bot-Api-Secret-Token', 'valid-secret')->postJson('/webhooks/telegram', [
             'update_id' => 1,
-            'message' => ['text' => '/start', 'chat' => ['id' => 123], 'from' => ['id' => 123, 'first_name' => 'Test', 'username' => 'tester']],
+            'message' => ['text' => '/start', 'chat' => ['id' => 123, 'type' => 'private'], 'from' => ['id' => 123, 'first_name' => 'Test', 'username' => 'tester']],
         ])->assertOk();
         $this->assertDatabaseHas('users', ['telegram_id' => 123, 'telegram_username' => 'tester']);
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/sendPhoto')
@@ -100,7 +100,7 @@ class ExampleTest extends TestCase
 
         $this->withHeader('X-Telegram-Bot-Api-Secret-Token', 'valid-secret')->postJson('/webhooks/telegram', [
             'update_id' => 2,
-            'message' => ['text' => 'invalid-order-id', 'chat' => ['id' => 123], 'from' => ['id' => 123, 'first_name' => 'Test']],
+            'message' => ['text' => 'invalid-order-id', 'chat' => ['id' => 123, 'type' => 'private'], 'from' => ['id' => 123, 'first_name' => 'Test']],
         ])->assertOk();
 
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/sendMessage')
@@ -127,5 +127,22 @@ class ExampleTest extends TestCase
             'user_id' => $user->id,
             'balance_after' => 0.5,
         ]);
+    }
+
+    public function test_shop_bot_does_not_reply_inside_groups(): void
+    {
+        config(['services.telegram.token' => 'test-token', 'services.telegram.webhook_secret' => 'valid-secret']);
+        Http::fake();
+
+        $this->withHeader('X-Telegram-Bot-Api-Secret-Token', 'valid-secret')->postJson('/webhooks/telegram', [
+            'update_id' => 3,
+            'message' => [
+                'text' => '/start',
+                'chat' => ['id' => -100123, 'type' => 'supergroup'],
+                'from' => ['id' => 789, 'first_name' => 'Group User'],
+            ],
+        ])->assertOk();
+
+        Http::assertNothingSent();
     }
 }
