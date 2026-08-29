@@ -6,6 +6,7 @@ return [
         'token' => env('TELEGRAM_BOT_TOKEN'),
         'webhook_secret' => env('TELEGRAM_WEBHOOK_SECRET'),
         'support_url' => env('TELEGRAM_SUPPORT_URL'),
+        'card_image_url' => env('TELEGRAM_CARD_IMAGE_URL', rtrim((string) env('APP_URL'), '/').'/images/koduck-interface-cover.png'),
     ],
 
     'binance' => [

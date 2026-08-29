@@ -35,6 +35,7 @@ class ExampleTest extends TestCase
             'message' => ['text' => '/start', 'chat' => ['id' => 123], 'from' => ['id' => 123, 'first_name' => 'Test', 'username' => 'tester']],
         ])->assertOk();
         $this->assertDatabaseHas('users', ['telegram_id' => 123, 'telegram_username' => 'tester']);
-        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/sendMessage'));
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/sendPhoto')
+            && str_ends_with($request['photo'], '/images/koduck-interface-cover.png'));
     }
 }

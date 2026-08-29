@@ -32,6 +32,47 @@ class TelegramClient
         $this->call('sendMessage', $payload);
     }
 
+    public function sendCard(int|string $chatId, string $caption, array $keyboard = []): void
+    {
+        $payload = [
+            'chat_id' => $chatId,
+            'photo' => (string) config('services.telegram.card_image_url'),
+            'caption' => $caption,
+            'parse_mode' => 'HTML',
+            'reply_markup' => ['inline_keyboard' => $keyboard],
+        ];
+
+        $this->call('sendPhoto', $payload);
+    }
+
+    public function editCard(int|string $chatId, int $messageId, string $caption, array $keyboard = []): void
+    {
+        $payload = [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'caption' => $caption,
+            'parse_mode' => 'HTML',
+            'reply_markup' => ['inline_keyboard' => $keyboard],
+        ];
+
+        try {
+            $this->call('editMessageCaption', $payload);
+        } catch (RequestException $exception) {
+            $body = $exception->response->body();
+            if (str_contains($body, 'message is not modified')) {
+                return;
+            }
+
+            if (str_contains($body, 'there is no caption') || str_contains($body, "message can't be edited")) {
+                $this->sendCard($chatId, $caption, $keyboard);
+
+                return;
+            }
+
+            throw $exception;
+        }
+    }
+
     public function editMessage(int|string $chatId, int $messageId, string $text, array $keyboard = []): void
     {
         $payload = [

@@ -112,8 +112,8 @@ class TelegramWebhookController extends Controller
     private function beginDeposit(TelegramClient $telegram, User $user, int|string $chatId): void
     {
         Cache::put('telegram-state:'.$user->id, ['step' => 'deposit_amount'], now()->addMinutes(30));
-        $this->respond($telegram, $chatId, "➕ <b>DEPOSIT BALANCE</b>\n\n💵 Currency: <b>USDT</b>\n📌 Minimum: <b>0.10 USDT</b>\n\nSend the amount you want to deposit.\nExample: <code>25</code>", [
-            [['text' => '❌ Cancel', 'callback_data' => 'cancel']],
+        $this->respond($telegram, $chatId, "<b>DEPOSIT / AMOUNT</b>\n\nCurrency\n<b>USDT</b>\n\nMinimum deposit\n<b>0.10 USDT</b>\n\nSend the amount you want to add.\nExample: <code>25</code>", [
+            [['text' => 'Cancel', 'callback_data' => 'cancel']],
         ]);
     }
 
@@ -153,8 +153,8 @@ class TelegramWebhookController extends Controller
                 'amount' => $amount, 'status' => 'pending', 'expires_at' => now()->addMinutes(30),
             ]);
             Cache::put($key, ['step' => 'deposit_txid', 'deposit_id' => $deposit->id], $deposit->expires_at);
-            $this->respond($telegram, $chatId, "💳 <b>BINANCE PAY</b>\n\n💵 Send exactly: <b>{$amount} USDT</b>\n🆔 Binance Pay ID:\n<code>".e((string) config('services.binance.pay_id'))."</code>\n\n⏳ <b>Time limit: 30 minutes</b>\n⚠️ Sending another amount may delay verification.\n\nAfter payment, copy and send the <b>Transaction ID</b> here.", [
-                [['text' => '❌ Cancel Payment', 'callback_data' => 'cancel']],
+            $this->respond($telegram, $chatId, "<b>PAYMENT / BINANCE PAY</b>\n\nExact amount\n<b>{$amount} USDT</b>\n\nBinance Pay ID\n<code>".e((string) config('services.binance.pay_id'))."</code>\n\nValid for <b>30 minutes</b>. Sending a different amount can delay verification.\n\nAfter payment, send the <b>Transaction ID</b> here.", [
+                [['text' => 'Cancel Payment', 'callback_data' => 'cancel']],
             ]);
 
             return;
@@ -194,9 +194,9 @@ class TelegramWebhookController extends Controller
 
         app(WalletService::class)->approveDeposit($deposit, $transaction);
         Cache::forget($key);
-        $this->respond($telegram, $chatId, "✅ <b>DEPOSIT APPROVED</b>\n\n💵 Amount: <b>{$deposit->amount} USDT</b>\n💰 Your wallet balance has been updated successfully.", [
-            [['text' => '🛍 Browse Products', 'callback_data' => 'products'], ['text' => '💰 My Balance', 'callback_data' => 'balance']],
-            [['text' => '🏠 Main Menu', 'callback_data' => 'home']],
+        $this->respond($telegram, $chatId, "<b>DEPOSIT / APPROVED</b>\n\nAmount credited\n<b>{$deposit->amount} USDT</b>\n\nYour wallet is ready to use.", [
+            [['text' => 'Explore Store', 'callback_data' => 'products'], ['text' => 'Wallet', 'callback_data' => 'balance']],
+            [['text' => 'Dashboard', 'callback_data' => 'home']],
         ]);
     }
 
@@ -220,10 +220,10 @@ class TelegramWebhookController extends Controller
     private function sendAccessRestricted(TelegramClient $telegram, int|string $chatId, Collection $missingChannels): void
     {
         $keyboard = $missingChannels->map(fn (RequiredChannel $channel): array => [[
-            'text' => '📣 Join '.$channel->name, 'url' => $channel->join_url,
+            'text' => 'Join '.$channel->name, 'url' => $channel->join_url,
         ]])->values()->all();
-        $keyboard[] = [['text' => "✅ I've Joined — Verify", 'callback_data' => 'verify']];
-        $this->respond($telegram, $chatId, "🔒 <b>ACCESS RESTRICTED</b>\n\nTo use KoDuck Shop, please join all communities listed below.\n\nAfter joining, tap <b>Verify</b> to unlock full access.", $keyboard);
+        $keyboard[] = [['text' => "I've Joined — Verify Access", 'callback_data' => 'verify']];
+        $this->respond($telegram, $chatId, "<b>MEMBERSHIP / REQUIRED</b>\n\nJoin the KoDuck communities below to unlock the store.\n\nWhen finished, verify your access.", $keyboard);
     }
 
     private function products(TelegramClient $telegram, int|string $chatId): void
@@ -265,10 +265,10 @@ class TelegramWebhookController extends Controller
             return;
         }
         $delivery = $product->delivery_type === 'automatic' ? 'Automatic delivery' : 'Manual delivery by admin';
-        $this->respond($telegram, $chatId, '📦 <b>'.e($product->name)."</b>\n\n📝 <b>Product Details</b>\n".e($product->description ?: 'Premium digital product with reliable support.')."\n\n💵 <b>Price:</b> USD ".number_format((float) $product->price, 2)." / item\n📦 <b>Availability:</b> ".($product->stock > 0 ? "In stock ({$product->stock})" : 'Out of stock')."\n🛡 <b>Warranty:</b> {$product->warranty_days} days\n⚡ <b>Delivery:</b> {$delivery}\n\n🔐 Secure checkout from your wallet balance.", [
-            [['text' => '🛒 Buy Now', 'callback_data' => 'buy:'.$product->id]],
-            [['text' => '💰 My Balance', 'callback_data' => 'balance'], ['text' => '➕ Deposit', 'callback_data' => 'deposit']],
-            [['text' => '⬅️ Back to Products', 'callback_data' => 'products']],
+        $this->respond($telegram, $chatId, '<b>PRODUCT / '.e($product->name)."</b>\n\n".e($product->description ?: 'Premium digital product with reliable support.')."\n\n<b>USD ".number_format((float) $product->price, 2)."</b> per item\n".($product->stock > 0 ? "{$product->stock} available" : 'Out of stock')." · {$product->warranty_days}-day warranty\n{$delivery}\n\nSecure wallet checkout.", [
+            [['text' => 'Continue to Purchase', 'callback_data' => 'buy:'.$product->id]],
+            [['text' => 'Wallet', 'callback_data' => 'balance'], ['text' => 'Add Funds', 'callback_data' => 'deposit']],
+            [['text' => '‹ Catalog', 'callback_data' => 'products']],
         ]);
     }
 
@@ -289,9 +289,9 @@ class TelegramWebhookController extends Controller
             return;
         }
         Cache::put('telegram-state:'.$user->id, ['step' => 'purchase_quantity', 'product_id' => $product->id], now()->addMinutes(15));
-        $this->respond($telegram, $chatId, "🧾 <b>SELECT QUANTITY</b>\n\n📦 Product: <b>".e($product->name)."</b>\n💵 Unit price: <b>USD ".number_format((float) $product->price, 2)."</b>\n📊 Available stock: <b>{$product->stock}</b>\n\nSend the quantity you want to purchase.", [
+        $this->respond($telegram, $chatId, "<b>ORDER / QUANTITY</b>\n\nProduct\n<b>".e($product->name)."</b>\n\nUnit price · <b>USD ".number_format((float) $product->price, 2)."</b>\nAvailable · <b>{$product->stock}</b>\n\nChoose below or send another quantity.", [
             [['text' => '1 item', 'callback_data' => 'quantity:1'], ['text' => '2 items', 'callback_data' => 'quantity:2']],
-            [['text' => '❌ Cancel', 'callback_data' => 'cancel']],
+            [['text' => 'Cancel', 'callback_data' => 'cancel']],
         ]);
     }
 
@@ -318,9 +318,9 @@ class TelegramWebhookController extends Controller
         Cache::put('telegram-state:'.$user->id, [
             'step' => 'purchase_confirm', 'product_id' => $product->id, 'quantity' => $quantity,
         ], now()->addMinutes(15));
-        $this->respond($telegram, $chatId, "🧾 <b>SECURE CHECKOUT</b>\n\n📦 Product: <b>".e($product->name)."</b>\n🔢 Quantity: <b>{$quantity}</b>\n💵 Subtotal: <b>USD ".number_format((float) $total, 2)."</b>\n💰 Wallet balance: <b>USD ".number_format((float) $user->balance, 2)."</b>\n\nConfirm your purchase below.", [
-            [['text' => '✅ Confirm Purchase', 'callback_data' => 'confirm_purchase']],
-            [['text' => '➕ Deposit Funds', 'callback_data' => 'deposit'], ['text' => '❌ Cancel', 'callback_data' => 'cancel']],
+        $this->respond($telegram, $chatId, "<b>CHECKOUT / REVIEW</b>\n\n".e($product->name)." · {$quantity} item(s)\n\nTotal\n<b>USD ".number_format((float) $total, 2)."</b>\n\nWallet available · USD ".number_format((float) $user->balance, 2)."\n\nConfirm to place your order securely.", [
+            [['text' => 'Confirm & Pay', 'callback_data' => 'confirm_purchase']],
+            [['text' => 'Add Funds', 'callback_data' => 'deposit'], ['text' => 'Cancel', 'callback_data' => 'cancel']],
         ]);
     }
 
@@ -441,13 +441,27 @@ class TelegramWebhookController extends Controller
 
     private function respond(TelegramClient $telegram, int|string $chatId, string $text, array $keyboard = []): void
     {
+        $isVisualScreen = $keyboard !== [] && mb_strlen(strip_tags($text)) <= 1024;
+
+        if ($this->callbackMessageId !== null && $isVisualScreen) {
+            $telegram->editCard($chatId, $this->callbackMessageId, $text, $keyboard);
+
+            return;
+        }
+
         if ($this->callbackMessageId !== null) {
             $telegram->editMessage($chatId, $this->callbackMessageId, $text, $keyboard);
 
             return;
         }
 
-        $telegram->sendMessage($chatId, $text, $keyboard);
+        if ($isVisualScreen) {
+            $telegram->sendCard($chatId, $text, $keyboard);
+
+            return;
+        }
+
+        $telegram->sendMessage($chatId, $text);
     }
 
     private function homeButton(): array
