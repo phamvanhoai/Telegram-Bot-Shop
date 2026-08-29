@@ -34,10 +34,13 @@ class BinancePayClient
     public function findIncoming(string $transactionId, string $amount, CarbonInterface $createdAt): ?array
     {
         $currency = strtoupper((string) config('services.binance.currency', 'USDT'));
-        $payId = (string) config('services.binance.pay_id');
+        $from = $createdAt->copy()->subMinutes(5);
+        if ($from->isAfter(now()->subDay())) {
+            $from = now()->subDay();
+        }
 
-        foreach ($this->transactions($createdAt->copy()->subMinutes(5), now()) as $transaction) {
-            if ((string) ($transaction['transactionId'] ?? '') !== $transactionId) {
+        foreach ($this->transactions($from, now()) as $transaction) {
+            if (! hash_equals(strtolower(trim((string) ($transaction['transactionId'] ?? ''))), strtolower(trim($transactionId)))) {
                 continue;
             }
             if (strtoupper((string) ($transaction['currency'] ?? '')) !== $currency) {
@@ -47,12 +50,10 @@ class BinancePayClient
                 return null;
             }
 
-            $receiverIds = array_filter([
-                data_get($transaction, 'receiverInfo.binanceId'),
-                data_get($transaction, 'receiverInfo.accountId'),
-                data_get($transaction, 'receiverInfo.uid'),
-            ]);
-            if ($receiverIds !== [] && ! in_array($payId, array_map('strval', $receiverIds), true)) {
+            // Binance identifies received payments with transactionType=RECEIVE.
+            // receiverInfo fields are not Pay IDs and vary by account type, so
+            // comparing them with the configured Pay ID rejects valid receipts.
+            if (strtoupper((string) ($transaction['transactionType'] ?? '')) !== 'RECEIVE') {
                 return null;
             }
 

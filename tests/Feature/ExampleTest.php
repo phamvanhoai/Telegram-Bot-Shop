@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\BinancePayClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -37,5 +38,29 @@ class ExampleTest extends TestCase
         $this->assertDatabaseHas('users', ['telegram_id' => 123, 'telegram_username' => 'tester']);
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/sendPhoto')
             && str_ends_with($request['photo'], '/images/koduck-interface-cover.png'));
+    }
+
+    public function test_binance_received_payment_is_matched_without_comparing_receiver_account_to_pay_id(): void
+    {
+        config([
+            'services.binance.api_key' => 'key',
+            'services.binance.api_secret' => 'secret',
+            'services.binance.pay_id' => 'pay-id-is-not-account-id',
+            'services.binance.currency' => 'USDT',
+        ]);
+        Http::fake(['api.binance.com/*' => Http::response([
+            'code' => '000000',
+            'data' => [[
+                'transactionId' => 'TX-12345678',
+                'transactionType' => 'RECEIVE',
+                'amount' => '25.00000000',
+                'currency' => 'USDT',
+                'receiverInfo' => ['accountId' => 'different-account-id'],
+            ]],
+        ])]);
+
+        $transaction = app(BinancePayClient::class)->findIncoming('tx-12345678', '25', now());
+
+        $this->assertSame('TX-12345678', $transaction['transactionId']);
     }
 }
