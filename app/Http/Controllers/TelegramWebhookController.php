@@ -215,7 +215,8 @@ class TelegramWebhookController extends Controller
 
         app(WalletService::class)->approveDeposit($deposit, $transaction);
         Cache::forget($key);
-        $this->respond($telegram, $chatId, "<b>DEPOSIT / APPROVED</b>\n\nAmount credited\n<b>{$deposit->amount} USDT</b>\n\nYour wallet is ready to use.", [
+        $creditedAmount = $this->formatCryptoAmount((string) $deposit->amount);
+        $this->respond($telegram, $chatId, "<b>DEPOSIT / APPROVED</b>\n\nAmount credited\n<b>{$creditedAmount} USDT</b>\n\nYour wallet is ready to use.", [
             [['text' => 'Explore Store', 'callback_data' => 'products'], ['text' => 'Wallet', 'callback_data' => 'balance']],
             [['text' => 'Dashboard', 'callback_data' => 'home']],
         ]);
@@ -488,5 +489,16 @@ class TelegramWebhookController extends Controller
     private function homeButton(): array
     {
         return [[['text' => '‹ Dashboard', 'callback_data' => 'home']]];
+    }
+
+    private function formatCryptoAmount(string $amount): string
+    {
+        if (! str_contains($amount, '.')) {
+            return $amount;
+        }
+
+        $formatted = rtrim(rtrim($amount, '0'), '.');
+
+        return $formatted === '' ? '0' : $formatted;
     }
 }
