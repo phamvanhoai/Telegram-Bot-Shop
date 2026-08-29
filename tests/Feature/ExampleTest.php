@@ -6,6 +6,7 @@ use App\Models\DepositMethod;
 use App\Models\DepositRequest;
 use App\Models\User;
 use App\Services\BinancePayClient;
+use App\Services\WalletService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -104,5 +105,27 @@ class ExampleTest extends TestCase
 
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/sendMessage')
             && str_contains((string) $request['text'], 'Payment Not Found'));
+    }
+
+    public function test_approving_a_deposit_really_updates_the_user_balance(): void
+    {
+        $user = User::query()->create(['telegram_id' => 456, 'name' => 'Wallet Test']);
+        $method = DepositMethod::query()->create(['code' => 'wallet_test', 'name' => 'Wallet Test', 'is_active' => true]);
+        $deposit = DepositRequest::query()->create([
+            'user_id' => $user->id,
+            'deposit_method_id' => $method->id,
+            'amount' => 0.5,
+            'txid' => 'wallet-test-transaction',
+            'status' => 'verifying',
+            'expires_at' => now()->addMinutes(20),
+        ]);
+
+        app(WalletService::class)->approveDeposit($deposit, ['orderId' => 'wallet-test-transaction']);
+
+        $this->assertSame('0.50000000', (string) $user->refresh()->balance);
+        $this->assertDatabaseHas('wallet_transactions', [
+            'user_id' => $user->id,
+            'balance_after' => 0.5,
+        ]);
     }
 }

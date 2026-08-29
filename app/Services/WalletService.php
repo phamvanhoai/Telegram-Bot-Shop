@@ -22,7 +22,7 @@ class WalletService
             $user = User::query()->lockForUpdate()->findOrFail($locked->user_id);
             $before = (string) $user->balance;
             $after = bcadd($before, (string) $locked->amount, 8);
-            $user->update(['balance' => $after]);
+            $user->forceFill(['balance' => $after])->save();
             $locked->update(['status' => 'approved', 'approved_at' => now(), 'provider_payload' => $providerPayload]);
             WalletTransaction::query()->create([
                 'user_id' => $user->id, 'type' => 'deposit', 'amount' => $locked->amount,

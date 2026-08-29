@@ -375,7 +375,7 @@ class TelegramWebhookController extends Controller
                 'created_at' => now(), 'updated_at' => now(),
             ]);
             $product->decrement('stock', $quantity);
-            $lockedUser->update(['balance' => $after]);
+            $lockedUser->forceFill(['balance' => $after])->save();
             WalletTransaction::query()->create([
                 'user_id' => $lockedUser->id, 'type' => 'purchase', 'amount' => '-'.$total,
                 'balance_before' => $before, 'balance_after' => $after,
