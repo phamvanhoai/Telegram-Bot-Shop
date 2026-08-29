@@ -8,6 +8,13 @@ return [
         'support_url' => env('TELEGRAM_SUPPORT_URL'),
     ],
 
+    'binance' => [
+        'api_key' => env('BINANCE_API_KEY'),
+        'api_secret' => env('BINANCE_API_SECRET'),
+        'pay_id' => env('BINANCE_PAY_ID'),
+        'currency' => env('BINANCE_PAYMENT_CURRENCY', 'USDT'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services

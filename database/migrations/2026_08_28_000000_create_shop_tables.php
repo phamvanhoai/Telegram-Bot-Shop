@@ -46,7 +46,9 @@ return new class extends Migration
             $table->decimal('amount', 18, 8);
             $table->decimal('balance_before', 18, 8);
             $table->decimal('balance_after', 18, 8);
-            $table->nullableMorphs('reference');
+            $table->string('reference_type')->nullable();
+            $table->string('reference_id')->nullable();
+            $table->index(['reference_type', 'reference_id']);
             $table->string('description')->nullable();
             $table->timestamps();
         });
