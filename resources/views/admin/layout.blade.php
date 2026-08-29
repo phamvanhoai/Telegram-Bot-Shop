@@ -6,6 +6,7 @@
   <nav class="mt-8 flex gap-2 lg:flex-col">
    <a class="rounded-xl px-4 py-3 hover:bg-white/10" href="{{ route('admin.dashboard') }}">Tổng quan</a>
    <a class="rounded-xl px-4 py-3 hover:bg-white/10" href="{{ route('admin.products.index') }}">Sản phẩm</a>
+   <a class="rounded-xl px-4 py-3 hover:bg-white/10" href="{{ route('admin.deposits.index') }}">Nạp tiền</a>
    <a class="rounded-xl px-4 py-3 hover:bg-white/10" href="{{ route('admin.orders.index') }}">Đơn hàng</a>
   </nav>
   <form method="post" action="{{ route('admin.logout') }}" class="mt-6">@csrf<button class="text-sm text-slate-400 hover:text-white">Đăng xuất</button></form>

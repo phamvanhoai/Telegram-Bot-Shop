@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DepositRequest extends Model
 {
@@ -21,5 +22,15 @@ class DepositRequest extends Model
             'approved_at' => 'datetime',
             'provider_payload' => 'array',
         ];
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function method(): BelongsTo
+    {
+        return $this->belongsTo(DepositMethod::class, 'deposit_method_id');
     }
 }

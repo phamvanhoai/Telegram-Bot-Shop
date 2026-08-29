@@ -41,4 +41,12 @@ class AdminTest extends TestCase
 
         $this->assertDatabaseHas(Product::class, ['name' => 'Premium Account', 'stock' => 20, 'is_active' => true]);
     }
+
+    public function test_admin_can_open_deposit_history(): void
+    {
+        $admin = User::factory()->create();
+        $admin->forceFill(['is_admin' => true])->save();
+
+        $this->actingAs($admin)->get('/admin/deposits')->assertOk()->assertSee('Lịch sử nạp tiền');
+    }
 }
