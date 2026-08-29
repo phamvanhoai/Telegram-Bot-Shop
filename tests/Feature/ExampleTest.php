@@ -51,16 +51,16 @@ class ExampleTest extends TestCase
         Http::fake(['api.binance.com/*' => Http::response([
             'code' => '000000',
             'data' => [[
-                'transactionId' => 'TX-12345678',
-                'transactionType' => 'RECEIVE',
+                'orderId' => '451258665332137984',
+                'transactionId' => 'P_A_INTERNAL_REFERENCE',
                 'amount' => '25.00000000',
                 'currency' => 'USDT',
                 'receiverInfo' => ['accountId' => 'different-account-id'],
             ]],
         ])]);
 
-        $transaction = app(BinancePayClient::class)->findIncoming('tx-12345678', '25', now());
+        $transaction = app(BinancePayClient::class)->findIncoming('451258665332137984', '25', now());
 
-        $this->assertSame('TX-12345678', $transaction['transactionId']);
+        $this->assertSame('P_A_INTERNAL_REFERENCE', $transaction['transactionId']);
     }
 }

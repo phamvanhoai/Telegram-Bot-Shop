@@ -40,7 +40,12 @@ class BinancePayClient
         }
 
         foreach ($this->transactions($from, now()) as $transaction) {
-            if (! hash_equals(strtolower(trim((string) ($transaction['transactionId'] ?? ''))), strtolower(trim($transactionId)))) {
+            $submittedId = strtolower(trim($transactionId));
+            $providerIds = array_filter([
+                strtolower(trim((string) ($transaction['transactionId'] ?? ''))),
+                strtolower(trim((string) ($transaction['orderId'] ?? ''))),
+            ]);
+            if (! in_array($submittedId, $providerIds, true)) {
                 continue;
             }
             if (strtoupper((string) ($transaction['currency'] ?? '')) !== $currency) {
@@ -50,10 +55,14 @@ class BinancePayClient
                 return null;
             }
 
-            // Binance identifies received payments with transactionType=RECEIVE.
-            // receiverInfo fields are not Pay IDs and vary by account type, so
-            // comparing them with the configured Pay ID rejects valid receipts.
-            if (strtoupper((string) ($transaction['transactionType'] ?? '')) !== 'RECEIVE') {
+            // Some Binance Pay history responses omit transactionType. In those
+            // responses incoming payments have a positive amount and outgoing
+            // payments have a negative amount.
+            $transactionType = strtoupper((string) ($transaction['transactionType'] ?? ''));
+            $isIncoming = $transactionType !== ''
+                ? $transactionType === 'RECEIVE'
+                : bccomp((string) ($transaction['amount'] ?? '0'), '0', 8) > 0;
+            if (! $isIncoming) {
                 return null;
             }
 
