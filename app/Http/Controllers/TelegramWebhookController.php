@@ -313,12 +313,17 @@ class TelegramWebhookController extends Controller
 
     private function products(TelegramClient $telegram, int|string $chatId): void
     {
-        $products = Product::query()->where('is_active', true)->where('stock', '>', 0)->orderBy('sort_order')->limit(50)->get();
+        $products = Product::query()->where('is_active', true)->orderBy('sort_order')->limit(50)->get();
+        $available = $products->where('stock', '>', 0)->count();
         $keyboard = $products->map(fn (Product $product): array => [[
-            'text' => $product->name.'  —  $'.number_format((float) $product->price, 2), 'callback_data' => 'product:'.$product->id,
+            'text' => $product->stock > 0
+                ? $product->name.' · $'.number_format((float) $product->price, 2).' · '.$product->stock.' left'
+                : $product->name.' · SOLD OUT',
+            'callback_data' => 'product:'.$product->id,
+            'style' => $product->stock > 0 ? 'success' : 'danger',
         ]])->all();
         $keyboard[] = [['text' => '‹ Dashboard', 'callback_data' => 'home']];
-        $this->respond($telegram, $chatId, "<b>STORE / CATALOG</b>\n\n{$products->count()} product(s) available\n\nFast ordering · Warranty covered\nSecure wallet checkout\n\nSelect a product to continue.", $keyboard);
+        $this->respond($telegram, $chatId, "<b>STORE / CATALOG</b>\n\n{$available} product(s) currently available\n\nStock levels are updated after every purchase. Sold-out products remain visible so you can check availability later.\n\nSelect a product to continue.", $keyboard);
     }
 
     private function welcome(TelegramClient $telegram, User $user, int|string $chatId, bool $verified = false): void
@@ -350,11 +355,18 @@ class TelegramWebhookController extends Controller
             return;
         }
         $delivery = $product->delivery_type === 'automatic' ? 'Automatic delivery' : 'Manual delivery by admin';
-        $this->respond($telegram, $chatId, '<b>PRODUCT / '.e($product->name)."</b>\n\n".e($product->description ?: 'Premium digital product with reliable support.')."\n\n<b>USD ".number_format((float) $product->price, 2)."</b> per item\n".($product->stock > 0 ? "{$product->stock} available" : 'Out of stock')." · {$product->warranty_days}-day warranty\n{$delivery}\n\nSecure wallet checkout.", [
-            [['text' => 'Continue to Purchase', 'callback_data' => 'buy:'.$product->id]],
-            [['text' => 'Wallet', 'callback_data' => 'balance'], ['text' => 'Add Funds', 'callback_data' => 'deposit']],
-            [['text' => '‹ Catalog', 'callback_data' => 'products']],
-        ]);
+        $keyboard = $product->stock > 0
+            ? [
+                [['text' => 'Continue to Purchase', 'callback_data' => 'buy:'.$product->id, 'style' => 'primary']],
+                [['text' => 'Wallet', 'callback_data' => 'balance'], ['text' => 'Add Funds', 'callback_data' => 'deposit']],
+                [['text' => '‹ Catalog', 'callback_data' => 'products']],
+            ]
+            : [
+                [['text' => 'SOLD OUT', 'callback_data' => 'product:'.$product->id, 'style' => 'danger']],
+                [['text' => '‹ Catalog', 'callback_data' => 'products']],
+            ];
+        $availability = $product->stock > 0 ? "{$product->stock} remaining" : 'Currently sold out';
+        $this->respond($telegram, $chatId, '<b>PRODUCT / '.e($product->name)."</b>\n\n".e($product->description ?: 'Premium digital product with reliable support.')."\n\n<b>USD ".number_format((float) $product->price, 2)."</b> per item\n{$availability} · {$product->warranty_days}-day warranty\n{$delivery}\n\n".($product->stock > 0 ? 'Secure wallet checkout.' : 'Please check the catalog again later for restocks.'), $keyboard);
     }
 
     private function beginOrderTracking(TelegramClient $telegram, User $user, int|string $chatId): void
