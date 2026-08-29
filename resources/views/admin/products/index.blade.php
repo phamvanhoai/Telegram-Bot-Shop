@@ -1,0 +1,9 @@
+@extends('admin.layout')
+@section('title','Sản phẩm')
+@section('content')
+<div class="mb-8 flex items-end justify-between gap-4"><div><p class="text-sm font-bold uppercase tracking-[.2em] text-cyan-400">Catalog</p><h1 class="mt-2 text-3xl font-black">Sản phẩm</h1></div><a href="{{ route('admin.products.create') }}" class="rounded-xl bg-cyan-400 px-5 py-3 font-bold text-slate-950">Thêm sản phẩm</a></div>
+<div class="overflow-x-auto rounded-2xl border border-white/10 bg-slate-900"><table class="w-full min-w-[800px] text-left"><thead class="text-sm text-slate-400"><tr><th class="p-5">Sản phẩm</th><th>Giá</th><th>Tồn kho</th><th>Giao hàng</th><th>Hiển thị</th><th></th></tr></thead><tbody>
+@forelse($products as $product)<tr class="border-t border-white/10"><td class="p-5"><p class="font-bold">{{ $product->name }}</p><p class="mt-1 max-w-md truncate text-sm text-slate-500">{{ $product->description }}</p></td><td>${{ number_format((float)$product->price,2) }}</td><td>{{ $product->stock }}</td><td>{{ $product->delivery_type === 'automatic' ? 'Tự động' : 'Thủ công' }}</td><td><span class="rounded-full px-3 py-1 text-xs {{ $product->is_active ? 'bg-emerald-400/10 text-emerald-300':'bg-slate-700 text-slate-400' }}">{{ $product->is_active ? 'Đang bán':'Đã ẩn' }}</span></td><td class="pr-5"><div class="flex justify-end gap-3"><a class="text-cyan-400" href="{{ route('admin.products.edit',$product) }}">Sửa</a><form method="post" action="{{ route('admin.products.destroy',$product) }}" onsubmit="return confirm('Xóa hoặc ẩn sản phẩm này?')">@csrf @method('DELETE')<button class="text-rose-400">Xóa</button></form></div></td></tr>
+@empty<tr><td colspan="6" class="p-10 text-center text-slate-500">Chưa có sản phẩm. Hãy tạo sản phẩm đầu tiên.</td></tr>@endforelse
+</tbody></table></div><div class="mt-6">{{ $products->links() }}</div>
+@endsection

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Order extends Model
 {
@@ -11,5 +12,10 @@ class Order extends Model
     protected function casts(): array
     {
         return ['subtotal' => 'decimal:8', 'discount' => 'decimal:8', 'total' => 'decimal:8', 'completed_at' => 'datetime'];
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 }
