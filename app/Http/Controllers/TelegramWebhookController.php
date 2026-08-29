@@ -470,23 +470,38 @@ class TelegramWebhookController extends Controller
 
         Cache::forget($key);
         $order = $result['order'];
-        $this->respond($telegram, $chatId, "✅ <b>ORDER CONFIRMED</b>\n\n🆔 Order ID: <code>{$order->public_id}</code>\n📦 Product: <b>".e($result['product']->name)."</b>\n🔢 Quantity: <b>{$result['quantity']}</b>\n💵 Paid: <b>USD ".number_format((float) $order->total, 2)."</b>\n💰 Remaining balance: <b>USD ".number_format((float) $result['balance'], 2)."</b>\n\n⏳ Status: <b>Processing</b> — our team will deliver your product shortly.", [
-            [['text' => '📦 Track This Order', 'callback_data' => 'track_order'], ['text' => '🆘 Support', 'callback_data' => 'support']],
-            [['text' => '🏠 Main Menu', 'callback_data' => 'home']],
+        $deliveryNotice = $result['product']->delivery_type === 'manual'
+            ? "<b>Waiting for admin delivery</b>\nMost manual orders are delivered within a few hours."
+            : "<b>Preparing automatic delivery</b>\nYour product should be available shortly.";
+        $this->respond($telegram, $chatId, "<b>ORDER / CONFIRMED</b>\n\nOrder ID\n<code>{$order->public_id}</code>\n\nProduct · <b>".e($result['product']->name)."</b>\nQuantity · <b>{$result['quantity']}</b>\nPaid · <b>USD ".number_format((float) $order->total, 2)."</b>\nBalance · <b>USD ".number_format((float) $result['balance'], 2)."</b>\n\n{$deliveryNotice}\n\nYou can track the latest status at any time.", [
+            [['text' => 'Track This Order', 'callback_data' => 'track_order'], ['text' => 'Support', 'callback_data' => 'support']],
+            [['text' => 'Dashboard', 'callback_data' => 'home']],
         ]);
     }
 
     private function trackOrder(TelegramClient $telegram, User $user, int|string $chatId, string $publicId): void
     {
-        $order = Order::query()->where('user_id', $user->id)->where('public_id', $publicId)->first();
+        $order = Order::query()->with('items.product')->where('user_id', $user->id)->where('public_id', $publicId)->first();
         if (! $order) {
             $this->respond($telegram, $chatId, "🔎 <b>ORDER NOT FOUND</b>\n\nCheck the Order ID and try again. Only orders belonging to your account can be viewed.");
 
             return;
         }
         Cache::forget('telegram-state:'.$user->id);
-        $status = strtoupper(str_replace('_', ' ', $order->status));
-        $this->respond($telegram, $chatId, "📦 <b>ORDER TRACKING</b>\n\n🆔 Order ID: <code>".e($order->public_id)."</code>\n💵 Total: <b>USD ".number_format((float) $order->total, 2)."</b>\n📌 Status: <b>{$status}</b>\n🕒 Last updated: {$order->updated_at->format('Y-m-d H:i T')}", $this->homeButton());
+        $isManual = $order->items->contains(fn ($item): bool => $item->product?->delivery_type !== 'automatic');
+        $status = match ($order->status) {
+            'pending', 'paid', 'processing' => $isManual
+                ? "<b>Waiting for admin delivery</b>\nMost orders are delivered within a few hours. You will receive the delivery in this private chat."
+                : "<b>Preparing automatic delivery</b>\nThe system is processing your product and should deliver it shortly.",
+            'completed' => "<b>Delivered</b>\nThis order has been completed successfully.",
+            'cancelled' => "<b>Cancelled</b>\nThis order is no longer being processed.",
+            'refunded' => "<b>Refunded</b>\nThe payment for this order has been returned.",
+            default => '<b>'.e(strtoupper(str_replace('_', ' ', $order->status))).'</b>',
+        };
+        $this->respond($telegram, $chatId, "<b>ORDER / TRACKING</b>\n\nOrder ID\n<code>".e($order->public_id)."</code>\n\nTotal · <b>USD ".number_format((float) $order->total, 2)."</b>\nLast updated · {$order->updated_at->format('Y-m-d H:i T')}\n\n<b>DELIVERY STATUS</b>\n{$status}\n\nIf the expected time has passed, contact Support with your Order ID.", [
+            [['text' => 'Contact Support', 'callback_data' => 'support']],
+            [['text' => '‹ Dashboard', 'callback_data' => 'home']],
+        ]);
     }
 
     private function support(TelegramClient $telegram, int|string $chatId): void
