@@ -97,6 +97,11 @@ class TelegramWebhookController extends Controller
 
             return;
         }
+        if (str_starts_with((string) $action, 'deposit_method:')) {
+            $this->beginDepositAmount($telegram, $user, $chatId, Str::after((string) $action, 'deposit_method:'));
+
+            return;
+        }
 
         match ($action) {
             '/start', 'verify' => $this->verifyAndWelcome($telegram, $user, $chatId),
@@ -115,8 +120,43 @@ class TelegramWebhookController extends Controller
 
     private function beginDeposit(TelegramClient $telegram, User $user, int|string $chatId): void
     {
-        Cache::put('telegram-state:'.$user->id, ['step' => 'deposit_amount'], now()->addMinutes(30));
-        $this->respond($telegram, $chatId, "<b>DEPOSIT / AMOUNT</b>\n\nCurrency\n<b>USDT</b>\n\nMinimum deposit\n<b>0.10 USDT</b>\n\nSend the amount you want to add.\nExample: <code>25</code>", [
+        $this->respond($telegram, $chatId, "<b>DEPOSIT / METHOD</b>\n\nChoose how you want to send USDT. Every payment is verified automatically with Binance before your wallet is credited.", [
+            [['text' => 'Binance Pay', 'callback_data' => 'deposit_method:PAY']],
+            [['text' => 'USDT · TRC20', 'callback_data' => 'deposit_method:TRX'], ['text' => 'USDT · BEP20', 'callback_data' => 'deposit_method:BSC']],
+            [['text' => 'USDT · ERC20', 'callback_data' => 'deposit_method:ETH']],
+            [['text' => '‹ Dashboard', 'callback_data' => 'home']],
+        ]);
+    }
+
+    private function beginDepositAmount(TelegramClient $telegram, User $user, int|string $chatId, string $method): void
+    {
+        $method = strtoupper($method);
+        if (! in_array($method, ['PAY', 'TRX', 'BSC', 'ETH'], true)) {
+            $this->beginDeposit($telegram, $user, $chatId);
+
+            return;
+        }
+
+        $state = ['step' => 'deposit_amount', 'payment_method' => $method];
+        if ($method !== 'PAY') {
+            try {
+                $address = app(BinancePayClient::class)->depositAddress('USDT', $method);
+            } catch (Throwable $exception) {
+                Log::warning('Unable to load Binance deposit address', ['network' => $method, 'exception' => $exception]);
+                $this->respond($telegram, $chatId, "<b>NETWORK / UNAVAILABLE</b>\n\nThe deposit address could not be loaded from Binance. Please try again shortly or use Binance Pay.", [
+                    [['text' => 'Use Binance Pay', 'callback_data' => 'deposit_method:PAY']],
+                    [['text' => 'Choose Another Method', 'callback_data' => 'deposit']],
+                ]);
+
+                return;
+            }
+            $state['address'] = (string) $address['address'];
+            $state['tag'] = (string) ($address['tag'] ?? '');
+        }
+        Cache::put('telegram-state:'.$user->id, $state, now()->addMinutes(30));
+        $label = $method === 'PAY' ? 'Binance Pay' : "USDT · {$method}";
+        $this->respond($telegram, $chatId, "<b>DEPOSIT / AMOUNT</b>\n\nMethod\n<b>{$label}</b>\n\nMinimum deposit\n<b>0.10 USDT</b>\n\nSend the exact amount you want to add.\nExample: <code>25</code>", [
+            [['text' => 'Change Method', 'callback_data' => 'deposit']],
             [['text' => 'Cancel', 'callback_data' => 'cancel']],
         ]);
     }
@@ -165,16 +205,29 @@ class TelegramWebhookController extends Controller
 
                 return;
             }
-            $method = DepositMethod::query()->firstOrCreate(['code' => 'binance_pay'], [
-                'name' => 'Binance Pay', 'verification' => 'automatic',
-                'settings' => ['pay_id' => config('services.binance.pay_id')], 'is_active' => true,
+            $paymentMethod = strtoupper((string) ($state['payment_method'] ?? 'PAY'));
+            $isBinancePay = $paymentMethod === 'PAY';
+            $methodCode = $isBinancePay ? 'binance_pay' : 'usdt_'.strtolower($paymentMethod);
+            $methodName = $isBinancePay ? 'Binance Pay' : "USDT {$paymentMethod}";
+            $settings = $isBinancePay
+                ? ['pay_id' => config('services.binance.pay_id')]
+                : ['coin' => 'USDT', 'network' => $paymentMethod, 'address' => $state['address'], 'tag' => $state['tag'] ?? ''];
+            $method = DepositMethod::query()->updateOrCreate(['code' => $methodCode], [
+                'name' => $methodName, 'verification' => 'automatic', 'settings' => $settings, 'is_active' => true,
             ]);
             $deposit = DepositRequest::query()->create([
                 'id' => (string) Str::uuid(), 'user_id' => $user->id, 'deposit_method_id' => $method->id,
                 'amount' => $amount, 'status' => 'pending', 'expires_at' => now()->addMinutes(30),
             ]);
             Cache::put($key, ['step' => 'deposit_txid', 'deposit_id' => $deposit->id], $deposit->expires_at);
-            $this->respond($telegram, $chatId, "<b>PAYMENT / BINANCE PAY</b>\n\nExact amount\n<b>{$amount} USDT</b>\n\nBinance Pay ID\n<code>".e((string) config('services.binance.pay_id'))."</code>\n\nValid for <b>30 minutes</b>. Sending a different amount can delay verification.\n\nAfter payment, send the <b>Transaction ID</b> here.", [
+            if ($isBinancePay) {
+                $instructions = "<b>PAYMENT / BINANCE PAY</b>\n\nExact amount\n<b>{$amount} USDT</b>\n\nBinance Pay ID\n<code>".e((string) config('services.binance.pay_id'))."</code>\n\nValid for <b>30 minutes</b>. Sending a different amount can delay verification.\n\nAfter payment, send the <b>Order ID</b> here.";
+            } else {
+                $networkLabels = ['TRX' => 'TRON (TRC20)', 'BSC' => 'BNB Smart Chain (BEP20)', 'ETH' => 'Ethereum (ERC20)'];
+                $tag = ($state['tag'] ?? '') !== '' ? "\n\nMemo / Tag\n<code>".e($state['tag']).'</code>' : '';
+                $instructions = "<b>PAYMENT / USDT {$paymentMethod}</b>\n\nExact amount\n<b>{$amount} USDT</b>\n\nNetwork\n<b>{$networkLabels[$paymentMethod]}</b>\n\nDeposit address\n<code>".e($state['address'])."</code>{$tag}\n\nSend only USDT on this network. After Binance credits the deposit, send the <b>TxHash</b> here.";
+            }
+            $this->respond($telegram, $chatId, $instructions, [
                 [['text' => 'Cancel Payment', 'callback_data' => 'cancel']],
             ]);
 
@@ -205,7 +258,17 @@ class TelegramWebhookController extends Controller
             return;
         }
         $deposit->update(['txid' => $txid, 'status' => 'verifying']);
-        $transaction = app(BinancePayClient::class)->findIncoming($txid, (string) $deposit->amount, $deposit->created_at);
+        $deposit->load('method');
+        $settings = $deposit->method?->settings ?? [];
+        $transaction = $deposit->method?->code === 'binance_pay'
+            ? app(BinancePayClient::class)->findIncoming($txid, (string) $deposit->amount, $deposit->created_at)
+            : app(BinancePayClient::class)->findBlockchainDeposit(
+                $txid,
+                (string) $deposit->amount,
+                (string) ($settings['network'] ?? ''),
+                (string) ($settings['address'] ?? ''),
+                $deposit->created_at,
+            );
         if ($transaction === null) {
             $deposit->update(['txid' => null, 'status' => 'pending']);
             $this->respond($telegram, $chatId, "🔎 <b>Payment Not Found</b>\n\nCheck the Transaction ID, amount and currency. If you have just paid, wait a moment and send the ID again.");

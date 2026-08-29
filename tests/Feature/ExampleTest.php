@@ -129,6 +129,33 @@ class ExampleTest extends TestCase
         ]);
     }
 
+    public function test_blockchain_deposit_matches_tx_hash_network_address_amount_and_status(): void
+    {
+        config([
+            'services.binance.api_key' => 'key',
+            'services.binance.api_secret' => 'secret',
+            'services.binance.currency' => 'USDT',
+        ]);
+        Http::fake(['api.binance.com/*' => Http::response([[
+            'txId' => 'ABCDEF1234567890',
+            'coin' => 'USDT',
+            'network' => 'TRX',
+            'address' => 'TRON-DEPOSIT-ADDRESS',
+            'amount' => '12.50000000',
+            'status' => 6,
+        ]])]);
+
+        $deposit = app(BinancePayClient::class)->findBlockchainDeposit(
+            'abcdef1234567890',
+            '12.5',
+            'TRX',
+            'TRON-DEPOSIT-ADDRESS',
+            now(),
+        );
+
+        $this->assertSame('ABCDEF1234567890', $deposit['txId']);
+    }
+
     public function test_shop_bot_does_not_reply_inside_groups(): void
     {
         config(['services.telegram.token' => 'test-token', 'services.telegram.webhook_secret' => 'valid-secret']);
