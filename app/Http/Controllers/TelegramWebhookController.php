@@ -23,6 +23,8 @@ use Throwable;
 
 class TelegramWebhookController extends Controller
 {
+    private ?int $callbackMessageId = null;
+
     public function __invoke(Request $request, TelegramClient $telegram): JsonResponse
     {
         $secret = (string) config('services.telegram.webhook_secret');
@@ -56,6 +58,7 @@ class TelegramWebhookController extends Controller
         }
 
         $chatId = $message['chat']['id'] ?? $callback['message']['chat']['id'] ?? null;
+        $this->callbackMessageId = isset($callback['message']['message_id']) ? (int) $callback['message']['message_id'] : null;
         $action = $callback['data'] ?? $message['text'] ?? '';
         if ($callback) {
             $telegram->answerCallback($callback['id']);
@@ -70,7 +73,7 @@ class TelegramWebhookController extends Controller
         }
         if ($action === 'cancel') {
             Cache::forget('telegram-state:'.$user->id);
-            $telegram->sendMessage($chatId, "❌ <b>Action Cancelled</b>\n\nNo changes were made.", $this->homeButton());
+            $this->respond($telegram, $chatId, "❌ <b>Action Cancelled</b>\n\nNo changes were made.", $this->homeButton());
 
             return;
         }
@@ -93,11 +96,13 @@ class TelegramWebhookController extends Controller
 
         match ($action) {
             '/start', 'verify' => $this->verifyAndWelcome($telegram, $user, $chatId),
-            'home' => $this->welcome($telegram, $chatId),
+            'home' => $this->welcome($telegram, $user, $chatId),
             'products' => $this->products($telegram, $chatId),
             'balance' => $this->balance($telegram, $user, $chatId),
             'deposit' => $this->beginDeposit($telegram, $user, $chatId),
             'track_order' => $this->beginOrderTracking($telegram, $user, $chatId),
+            'orders' => $this->orders($telegram, $user, $chatId),
+            'account' => $this->account($telegram, $user, $chatId),
             'support' => $this->support($telegram, $chatId),
             'confirm_purchase' => $this->confirmPurchase($telegram, $user, $chatId),
             default => $message ? $this->handleTextInput($telegram, $user, $chatId, (string) $action) : null,
@@ -107,7 +112,7 @@ class TelegramWebhookController extends Controller
     private function beginDeposit(TelegramClient $telegram, User $user, int|string $chatId): void
     {
         Cache::put('telegram-state:'.$user->id, ['step' => 'deposit_amount'], now()->addMinutes(30));
-        $telegram->sendMessage($chatId, "➕ <b>DEPOSIT BALANCE</b>\n\n💵 Currency: <b>USDT</b>\n📌 Minimum: <b>0.10 USDT</b>\n\nSend the amount you want to deposit.\nExample: <code>25</code>", [
+        $this->respond($telegram, $chatId, "➕ <b>DEPOSIT BALANCE</b>\n\n💵 Currency: <b>USDT</b>\n📌 Minimum: <b>0.10 USDT</b>\n\nSend the amount you want to deposit.\nExample: <code>25</code>", [
             [['text' => '❌ Cancel', 'callback_data' => 'cancel']],
         ]);
     }
@@ -135,7 +140,7 @@ class TelegramWebhookController extends Controller
         if (($state['step'] ?? null) === 'deposit_amount') {
             $amount = trim($input);
             if (! preg_match('/^\d+(\.\d{1,8})?$/', $amount) || bccomp($amount, '0.1', 8) < 0 || bccomp($amount, '100000', 8) > 0) {
-                $telegram->sendMessage($chatId, "⚠️ <b>Invalid Amount</b>\n\nEnter a value from <b>0.10</b> to <b>100,000 USDT</b>.");
+                $this->respond($telegram, $chatId, "⚠️ <b>Invalid Amount</b>\n\nEnter a value from <b>0.10</b> to <b>100,000 USDT</b>.");
 
                 return;
             }
@@ -148,7 +153,7 @@ class TelegramWebhookController extends Controller
                 'amount' => $amount, 'status' => 'pending', 'expires_at' => now()->addMinutes(30),
             ]);
             Cache::put($key, ['step' => 'deposit_txid', 'deposit_id' => $deposit->id], $deposit->expires_at);
-            $telegram->sendMessage($chatId, "💳 <b>BINANCE PAY</b>\n\n💵 Send exactly: <b>{$amount} USDT</b>\n🆔 Binance Pay ID:\n<code>".e((string) config('services.binance.pay_id'))."</code>\n\n⏳ <b>Time limit: 30 minutes</b>\n⚠️ Sending another amount may delay verification.\n\nAfter payment, copy and send the <b>Transaction ID</b> here.", [
+            $this->respond($telegram, $chatId, "💳 <b>BINANCE PAY</b>\n\n💵 Send exactly: <b>{$amount} USDT</b>\n🆔 Binance Pay ID:\n<code>".e((string) config('services.binance.pay_id'))."</code>\n\n⏳ <b>Time limit: 30 minutes</b>\n⚠️ Sending another amount may delay verification.\n\nAfter payment, copy and send the <b>Transaction ID</b> here.", [
                 [['text' => '❌ Cancel Payment', 'callback_data' => 'cancel']],
             ]);
 
@@ -160,12 +165,12 @@ class TelegramWebhookController extends Controller
         }
         $txid = trim($input);
         if (! preg_match('/^[A-Za-z0-9_-]{8,100}$/', $txid)) {
-            $telegram->sendMessage($chatId, "⚠️ <b>Invalid Transaction ID</b>\n\nCopy the ID from your Binance Pay transaction details and try again.");
+            $this->respond($telegram, $chatId, "⚠️ <b>Invalid Transaction ID</b>\n\nCopy the ID from your Binance Pay transaction details and try again.");
 
             return;
         }
         if (DepositRequest::query()->where('txid', $txid)->exists()) {
-            $telegram->sendMessage($chatId, "🚫 <b>Transaction Already Used</b>\n\nEach Transaction ID can only be credited once.");
+            $this->respond($telegram, $chatId, "🚫 <b>Transaction Already Used</b>\n\nEach Transaction ID can only be credited once.");
 
             return;
         }
@@ -174,7 +179,7 @@ class TelegramWebhookController extends Controller
         if ($deposit->expires_at->isPast()) {
             $deposit->update(['status' => 'expired']);
             Cache::forget($key);
-            $telegram->sendMessage($chatId, "⌛ <b>Payment Request Expired</b>\n\nPlease create a new deposit request.", $this->homeButton());
+            $this->respond($telegram, $chatId, "⌛ <b>Payment Request Expired</b>\n\nPlease create a new deposit request.", $this->homeButton());
 
             return;
         }
@@ -182,14 +187,14 @@ class TelegramWebhookController extends Controller
         $transaction = app(BinancePayClient::class)->findIncoming($txid, (string) $deposit->amount, $deposit->created_at);
         if ($transaction === null) {
             $deposit->update(['txid' => null, 'status' => 'pending']);
-            $telegram->sendMessage($chatId, "🔎 <b>Payment Not Found</b>\n\nCheck the Transaction ID, amount and currency. If you have just paid, wait a moment and send the ID again.");
+            $this->respond($telegram, $chatId, "🔎 <b>Payment Not Found</b>\n\nCheck the Transaction ID, amount and currency. If you have just paid, wait a moment and send the ID again.");
 
             return;
         }
 
         app(WalletService::class)->approveDeposit($deposit, $transaction);
         Cache::forget($key);
-        $telegram->sendMessage($chatId, "✅ <b>DEPOSIT APPROVED</b>\n\n💵 Amount: <b>{$deposit->amount} USDT</b>\n💰 Your wallet balance has been updated successfully.", [
+        $this->respond($telegram, $chatId, "✅ <b>DEPOSIT APPROVED</b>\n\n💵 Amount: <b>{$deposit->amount} USDT</b>\n💰 Your wallet balance has been updated successfully.", [
             [['text' => '🛍 Browse Products', 'callback_data' => 'products'], ['text' => '💰 My Balance', 'callback_data' => 'balance']],
             [['text' => '🏠 Main Menu', 'callback_data' => 'home']],
         ]);
@@ -203,7 +208,7 @@ class TelegramWebhookController extends Controller
 
             return;
         }
-        $this->welcome($telegram, $chatId, true);
+        $this->welcome($telegram, $user, $chatId, true);
     }
 
     private function missingChannels(TelegramClient $telegram, User $user): Collection
@@ -218,34 +223,36 @@ class TelegramWebhookController extends Controller
             'text' => '📣 Join '.$channel->name, 'url' => $channel->join_url,
         ]])->values()->all();
         $keyboard[] = [['text' => "✅ I've Joined — Verify", 'callback_data' => 'verify']];
-        $telegram->sendMessage($chatId, "🔒 <b>ACCESS RESTRICTED</b>\n\nTo use KoDuck Shop, please join all communities listed below.\n\nAfter joining, tap <b>Verify</b> to unlock full access.", $keyboard);
+        $this->respond($telegram, $chatId, "🔒 <b>ACCESS RESTRICTED</b>\n\nTo use KoDuck Shop, please join all communities listed below.\n\nAfter joining, tap <b>Verify</b> to unlock full access.", $keyboard);
     }
 
     private function products(TelegramClient $telegram, int|string $chatId): void
     {
         $products = Product::query()->where('is_active', true)->where('stock', '>', 0)->orderBy('sort_order')->limit(50)->get();
         $keyboard = $products->map(fn (Product $product): array => [[
-            'text' => '▰ '.$product->name.'  •  $'.number_format((float) $product->price, 2), 'callback_data' => 'product:'.$product->id,
+            'text' => $product->name.'  —  $'.number_format((float) $product->price, 2), 'callback_data' => 'product:'.$product->id,
         ]])->all();
-        $keyboard[] = [['text' => '🏠 Back to Main Menu', 'callback_data' => 'home']];
-        $telegram->sendMessage($chatId, "🛍 <b>KODUCK SHOP — PRODUCT CATALOGUE</b>\n\n📦 Available products: <b>{$products->count()}</b>\n⚡ Fast ordering  •  🛡 Warranty covered\n🔐 Secure wallet checkout\n\n👇 Select a product to view full details.", $keyboard);
+        $keyboard[] = [['text' => '‹ Dashboard', 'callback_data' => 'home']];
+        $this->respond($telegram, $chatId, "<b>STORE / CATALOG</b>\n\n{$products->count()} product(s) available\n\nFast ordering · Warranty covered\nSecure wallet checkout\n\nSelect a product to continue.", $keyboard);
     }
 
-    private function welcome(TelegramClient $telegram, int|string $chatId, bool $verified = false): void
+    private function welcome(TelegramClient $telegram, User $user, int|string $chatId, bool $verified = false): void
     {
-        $prefix = $verified ? "✅ <b>Verification successful!</b>\n\n" : '';
-        $telegram->sendMessage($chatId, $prefix."👋 <b>WELCOME TO KODUCK SHOP</b>\n\n🚀 Your premium digital services marketplace\n\n💎 Premium Products\n⚡ Fast Delivery\n🔐 Secure Payments\n🛡 Trusted Support\n\nChoose a service below to get started.", [
-            [['text' => '🛍 Browse Products', 'callback_data' => 'products']],
-            [['text' => '💰 My Balance', 'callback_data' => 'balance'], ['text' => '➕ Deposit Funds', 'callback_data' => 'deposit']],
-            [['text' => '📦 Track My Order', 'callback_data' => 'track_order'], ['text' => '🆘 Customer Support', 'callback_data' => 'support']],
+        $activeOrders = Order::query()->where('user_id', $user->id)->whereIn('status', ['paid', 'processing'])->count();
+        $prefix = $verified ? "<b>ACCESS GRANTED</b>\nYour membership has been verified.\n\n" : '';
+        $name = e(Str::before($user->name, ' '));
+        $this->respond($telegram, $chatId, $prefix."<b>KODUCK / DIGITAL STORE</b>\n\nWelcome back, <b>{$name}</b>.\n\n<b>WALLET</b>\n$".number_format((float) $user->balance, 2)." available\n\n<b>ACTIVITY</b>\n{$activeOrders} active order(s)\n\n<blockquote>Premium digital products, delivered simply and securely.</blockquote>", [
+            [['text' => 'Explore Store', 'callback_data' => 'products']],
+            [['text' => 'Wallet', 'callback_data' => 'balance'], ['text' => 'My Orders', 'callback_data' => 'orders']],
+            [['text' => 'Deposit', 'callback_data' => 'deposit'], ['text' => 'Account', 'callback_data' => 'account']],
         ]);
     }
 
     private function balance(TelegramClient $telegram, User $user, int|string $chatId): void
     {
-        $telegram->sendMessage($chatId, "💰 <b>MY WALLET</b>\n\n💵 Available balance:\n<b>USD ".number_format((float) $user->balance, 2)."</b>\n\nYour wallet can be used for instant and secure checkout.", [
-            [['text' => '➕ Deposit Funds', 'callback_data' => 'deposit'], ['text' => '🛍 Browse Products', 'callback_data' => 'products']],
-            [['text' => '🏠 Main Menu', 'callback_data' => 'home']],
+        $this->respond($telegram, $chatId, "<b>WALLET / OVERVIEW</b>\n\nAvailable balance\n<b>$".number_format((float) $user->balance, 2)." USD</b>\n\nFunds are credited after payment verification and can be used instantly at checkout.", [
+            [['text' => 'Add Funds', 'callback_data' => 'deposit'], ['text' => 'Explore Store', 'callback_data' => 'products']],
+            [['text' => '‹ Dashboard', 'callback_data' => 'home']],
         ]);
     }
 
@@ -253,12 +260,12 @@ class TelegramWebhookController extends Controller
     {
         $product = Product::query()->where('is_active', true)->find($productId);
         if (! $product) {
-            $telegram->sendMessage($chatId, "⚠️ <b>Product Unavailable</b>\n\nThis product may have been removed or temporarily disabled.", $this->homeButton());
+            $this->respond($telegram, $chatId, "⚠️ <b>Product Unavailable</b>\n\nThis product may have been removed or temporarily disabled.", $this->homeButton());
 
             return;
         }
         $delivery = $product->delivery_type === 'automatic' ? 'Automatic delivery' : 'Manual delivery by admin';
-        $telegram->sendMessage($chatId, '📦 <b>'.e($product->name)."</b>\n\n📝 <b>Product Details</b>\n".e($product->description ?: 'Premium digital product with reliable support.')."\n\n💵 <b>Price:</b> USD ".number_format((float) $product->price, 2)." / item\n📦 <b>Availability:</b> ".($product->stock > 0 ? "In stock ({$product->stock})" : 'Out of stock')."\n🛡 <b>Warranty:</b> {$product->warranty_days} days\n⚡ <b>Delivery:</b> {$delivery}\n\n🔐 Secure checkout from your wallet balance.", [
+        $this->respond($telegram, $chatId, '📦 <b>'.e($product->name)."</b>\n\n📝 <b>Product Details</b>\n".e($product->description ?: 'Premium digital product with reliable support.')."\n\n💵 <b>Price:</b> USD ".number_format((float) $product->price, 2)." / item\n📦 <b>Availability:</b> ".($product->stock > 0 ? "In stock ({$product->stock})" : 'Out of stock')."\n🛡 <b>Warranty:</b> {$product->warranty_days} days\n⚡ <b>Delivery:</b> {$delivery}\n\n🔐 Secure checkout from your wallet balance.", [
             [['text' => '🛒 Buy Now', 'callback_data' => 'buy:'.$product->id]],
             [['text' => '💰 My Balance', 'callback_data' => 'balance'], ['text' => '➕ Deposit', 'callback_data' => 'deposit']],
             [['text' => '⬅️ Back to Products', 'callback_data' => 'products']],
@@ -268,7 +275,7 @@ class TelegramWebhookController extends Controller
     private function beginOrderTracking(TelegramClient $telegram, User $user, int|string $chatId): void
     {
         Cache::put('telegram-state:'.$user->id, ['step' => 'track_order'], now()->addMinutes(10));
-        $telegram->sendMessage($chatId, "📦 <b>TRACK YOUR ORDER</b>\n\nSend your Order ID to view its latest status.\nExample: <code>8641234567</code>\n\nOrder IDs are shown in your confirmation message.", [
+        $this->respond($telegram, $chatId, "📦 <b>TRACK YOUR ORDER</b>\n\nSend your Order ID to view its latest status.\nExample: <code>8641234567</code>\n\nOrder IDs are shown in your confirmation message.", [
             [['text' => '❌ Cancel', 'callback_data' => 'cancel']],
         ]);
     }
@@ -277,12 +284,12 @@ class TelegramWebhookController extends Controller
     {
         $product = Product::query()->where('is_active', true)->where('stock', '>', 0)->find($productId);
         if (! $product) {
-            $telegram->sendMessage($chatId, "⚠️ <b>Product Unavailable</b>\n\nThis product is currently out of stock.", $this->homeButton());
+            $this->respond($telegram, $chatId, "⚠️ <b>Product Unavailable</b>\n\nThis product is currently out of stock.", $this->homeButton());
 
             return;
         }
         Cache::put('telegram-state:'.$user->id, ['step' => 'purchase_quantity', 'product_id' => $product->id], now()->addMinutes(15));
-        $telegram->sendMessage($chatId, "🧾 <b>SELECT QUANTITY</b>\n\n📦 Product: <b>".e($product->name)."</b>\n💵 Unit price: <b>USD ".number_format((float) $product->price, 2)."</b>\n📊 Available stock: <b>{$product->stock}</b>\n\nSend the quantity you want to purchase.", [
+        $this->respond($telegram, $chatId, "🧾 <b>SELECT QUANTITY</b>\n\n📦 Product: <b>".e($product->name)."</b>\n💵 Unit price: <b>USD ".number_format((float) $product->price, 2)."</b>\n📊 Available stock: <b>{$product->stock}</b>\n\nSend the quantity you want to purchase.", [
             [['text' => '1 item', 'callback_data' => 'quantity:1'], ['text' => '2 items', 'callback_data' => 'quantity:2']],
             [['text' => '❌ Cancel', 'callback_data' => 'cancel']],
         ]);
@@ -291,19 +298,19 @@ class TelegramWebhookController extends Controller
     private function checkout(TelegramClient $telegram, User $user, int|string $chatId, array $state, string $input): void
     {
         if (($state['step'] ?? null) !== 'purchase_quantity' || ! isset($state['product_id'])) {
-            $telegram->sendMessage($chatId, "⌛ <b>Selection Expired</b>\n\nPlease choose the product again.", $this->homeButton());
+            $this->respond($telegram, $chatId, "⌛ <b>Selection Expired</b>\n\nPlease choose the product again.", $this->homeButton());
 
             return;
         }
         if (! ctype_digit($input) || (int) $input < 1) {
-            $telegram->sendMessage($chatId, "⚠️ <b>Invalid Quantity</b>\n\nSend a whole number greater than zero.");
+            $this->respond($telegram, $chatId, "⚠️ <b>Invalid Quantity</b>\n\nSend a whole number greater than zero.");
 
             return;
         }
         $product = Product::query()->findOrFail($state['product_id']);
         $quantity = (int) $input;
         if ($quantity > $product->stock) {
-            $telegram->sendMessage($chatId, "⚠️ <b>Insufficient Stock</b>\n\nOnly <b>{$product->stock}</b> item(s) are currently available.");
+            $this->respond($telegram, $chatId, "⚠️ <b>Insufficient Stock</b>\n\nOnly <b>{$product->stock}</b> item(s) are currently available.");
 
             return;
         }
@@ -311,7 +318,7 @@ class TelegramWebhookController extends Controller
         Cache::put('telegram-state:'.$user->id, [
             'step' => 'purchase_confirm', 'product_id' => $product->id, 'quantity' => $quantity,
         ], now()->addMinutes(15));
-        $telegram->sendMessage($chatId, "🧾 <b>SECURE CHECKOUT</b>\n\n📦 Product: <b>".e($product->name)."</b>\n🔢 Quantity: <b>{$quantity}</b>\n💵 Subtotal: <b>USD ".number_format((float) $total, 2)."</b>\n💰 Wallet balance: <b>USD ".number_format((float) $user->balance, 2)."</b>\n\nConfirm your purchase below.", [
+        $this->respond($telegram, $chatId, "🧾 <b>SECURE CHECKOUT</b>\n\n📦 Product: <b>".e($product->name)."</b>\n🔢 Quantity: <b>{$quantity}</b>\n💵 Subtotal: <b>USD ".number_format((float) $total, 2)."</b>\n💰 Wallet balance: <b>USD ".number_format((float) $user->balance, 2)."</b>\n\nConfirm your purchase below.", [
             [['text' => '✅ Confirm Purchase', 'callback_data' => 'confirm_purchase']],
             [['text' => '➕ Deposit Funds', 'callback_data' => 'deposit'], ['text' => '❌ Cancel', 'callback_data' => 'cancel']],
         ]);
@@ -322,7 +329,7 @@ class TelegramWebhookController extends Controller
         $key = 'telegram-state:'.$user->id;
         $state = Cache::get($key);
         if (($state['step'] ?? null) !== 'purchase_confirm') {
-            $telegram->sendMessage($chatId, "⌛ <b>Checkout Expired</b>\n\nPlease select the product again.", $this->homeButton());
+            $this->respond($telegram, $chatId, "⌛ <b>Checkout Expired</b>\n\nPlease select the product again.", $this->homeButton());
 
             return;
         }
@@ -363,12 +370,12 @@ class TelegramWebhookController extends Controller
         });
 
         if (($result['error'] ?? null) === 'stock') {
-            $telegram->sendMessage($chatId, "⚠️ <b>Insufficient Stock</b>\n\nThe available quantity changed. Please try again.", $this->homeButton());
+            $this->respond($telegram, $chatId, "⚠️ <b>Insufficient Stock</b>\n\nThe available quantity changed. Please try again.", $this->homeButton());
 
             return;
         }
         if (($result['error'] ?? null) === 'balance') {
-            $telegram->sendMessage($chatId, "⚠️ <b>INSUFFICIENT BALANCE</b>\n\nYou need an additional <b>USD ".number_format((float) $result['need'], 2).'</b> to complete this purchase.', [
+            $this->respond($telegram, $chatId, "⚠️ <b>INSUFFICIENT BALANCE</b>\n\nYou need an additional <b>USD ".number_format((float) $result['need'], 2).'</b> to complete this purchase.', [
                 [['text' => '➕ Deposit Now', 'callback_data' => 'deposit']],
                 [['text' => '⬅️ Back to Products', 'callback_data' => 'products']],
             ]);
@@ -378,7 +385,7 @@ class TelegramWebhookController extends Controller
 
         Cache::forget($key);
         $order = $result['order'];
-        $telegram->sendMessage($chatId, "✅ <b>ORDER CONFIRMED</b>\n\n🆔 Order ID: <code>{$order->public_id}</code>\n📦 Product: <b>".e($result['product']->name)."</b>\n🔢 Quantity: <b>{$result['quantity']}</b>\n💵 Paid: <b>USD ".number_format((float) $order->total, 2)."</b>\n💰 Remaining balance: <b>USD ".number_format((float) $result['balance'], 2)."</b>\n\n⏳ Status: <b>Processing</b> — our team will deliver your product shortly.", [
+        $this->respond($telegram, $chatId, "✅ <b>ORDER CONFIRMED</b>\n\n🆔 Order ID: <code>{$order->public_id}</code>\n📦 Product: <b>".e($result['product']->name)."</b>\n🔢 Quantity: <b>{$result['quantity']}</b>\n💵 Paid: <b>USD ".number_format((float) $order->total, 2)."</b>\n💰 Remaining balance: <b>USD ".number_format((float) $result['balance'], 2)."</b>\n\n⏳ Status: <b>Processing</b> — our team will deliver your product shortly.", [
             [['text' => '📦 Track This Order', 'callback_data' => 'track_order'], ['text' => '🆘 Support', 'callback_data' => 'support']],
             [['text' => '🏠 Main Menu', 'callback_data' => 'home']],
         ]);
@@ -388,25 +395,63 @@ class TelegramWebhookController extends Controller
     {
         $order = Order::query()->where('user_id', $user->id)->where('public_id', $publicId)->first();
         if (! $order) {
-            $telegram->sendMessage($chatId, "🔎 <b>ORDER NOT FOUND</b>\n\nCheck the Order ID and try again. Only orders belonging to your account can be viewed.");
+            $this->respond($telegram, $chatId, "🔎 <b>ORDER NOT FOUND</b>\n\nCheck the Order ID and try again. Only orders belonging to your account can be viewed.");
 
             return;
         }
         Cache::forget('telegram-state:'.$user->id);
         $status = strtoupper(str_replace('_', ' ', $order->status));
-        $telegram->sendMessage($chatId, "📦 <b>ORDER TRACKING</b>\n\n🆔 Order ID: <code>".e($order->public_id)."</code>\n💵 Total: <b>USD ".number_format((float) $order->total, 2)."</b>\n📌 Status: <b>{$status}</b>\n🕒 Last updated: {$order->updated_at->format('Y-m-d H:i T')}", $this->homeButton());
+        $this->respond($telegram, $chatId, "📦 <b>ORDER TRACKING</b>\n\n🆔 Order ID: <code>".e($order->public_id)."</code>\n💵 Total: <b>USD ".number_format((float) $order->total, 2)."</b>\n📌 Status: <b>{$status}</b>\n🕒 Last updated: {$order->updated_at->format('Y-m-d H:i T')}", $this->homeButton());
     }
 
     private function support(TelegramClient $telegram, int|string $chatId): void
     {
-        $telegram->sendMessage($chatId, "🆘 <b>CUSTOMER SUPPORT</b>\n\nNeed help with a payment, product or order? Our support team is ready to assist you.\n\nPlease include your Order ID or Deposit ID for faster service.", [
-            [['text' => '💬 Open Support', 'url' => config('services.telegram.support_url') ?: 'https://t.me/telegram']],
-            [['text' => '🏠 Main Menu', 'callback_data' => 'home']],
+        $this->respond($telegram, $chatId, "<b>SUPPORT / HELP DESK</b>\n\nOur team can help with payments, products and order delivery.\n\nInclude your Order ID or Deposit ID so we can resolve the request faster.", [
+            [['text' => 'Open Support Chat ↗', 'url' => config('services.telegram.support_url') ?: 'https://t.me/telegram']],
+            [['text' => '‹ Dashboard', 'callback_data' => 'home']],
         ]);
+    }
+
+    private function orders(TelegramClient $telegram, User $user, int|string $chatId): void
+    {
+        $orders = Order::query()->where('user_id', $user->id)->latest()->limit(5)->get();
+        if ($orders->isEmpty()) {
+            $this->respond($telegram, $chatId, "<b>ORDERS / HISTORY</b>\n\nNo orders yet. Your recent purchases and delivery status will appear here.", [
+                [['text' => 'Explore Store', 'callback_data' => 'products']],
+                [['text' => '‹ Dashboard', 'callback_data' => 'home']],
+            ]);
+
+            return;
+        }
+        $lines = $orders->map(fn (Order $order): string => '<code>'.$order->public_id.'</code>  ·  '.strtoupper($order->status).'  ·  $'.number_format((float) $order->total, 2))->implode("\n");
+        $this->respond($telegram, $chatId, "<b>ORDERS / RECENT</b>\n\n{$lines}\n\nSelect Track Order to inspect a specific purchase.", [
+            [['text' => 'Track Order', 'callback_data' => 'track_order']],
+            [['text' => 'Explore Store', 'callback_data' => 'products'], ['text' => '‹ Dashboard', 'callback_data' => 'home']],
+        ]);
+    }
+
+    private function account(TelegramClient $telegram, User $user, int|string $chatId): void
+    {
+        $username = $user->telegram_username ? '@'.e($user->telegram_username) : 'Not set';
+        $this->respond($telegram, $chatId, "<b>ACCOUNT / PROFILE</b>\n\n<b>".e($user->name)."</b>\n{$username}\n\nCustomer ID\n<code>KD-".str_pad((string) $user->id, 6, '0', STR_PAD_LEFT)."</code>\n\nMembership\n<b>VERIFIED</b>\n\nNeed assistance with your account or an order? Contact our support team.", [
+            [['text' => 'Customer Support', 'callback_data' => 'support']],
+            [['text' => 'My Orders', 'callback_data' => 'orders'], ['text' => '‹ Dashboard', 'callback_data' => 'home']],
+        ]);
+    }
+
+    private function respond(TelegramClient $telegram, int|string $chatId, string $text, array $keyboard = []): void
+    {
+        if ($this->callbackMessageId !== null) {
+            $telegram->editMessage($chatId, $this->callbackMessageId, $text, $keyboard);
+
+            return;
+        }
+
+        $telegram->sendMessage($chatId, $text, $keyboard);
     }
 
     private function homeButton(): array
     {
-        return [[['text' => '🏠 Main Menu', 'callback_data' => 'home']]];
+        return [[['text' => '‹ Dashboard', 'callback_data' => 'home']]];
     }
 }

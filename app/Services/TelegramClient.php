@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -29,6 +30,25 @@ class TelegramClient
             $payload['reply_markup'] = ['inline_keyboard' => $keyboard];
         }
         $this->call('sendMessage', $payload);
+    }
+
+    public function editMessage(int|string $chatId, int $messageId, string $text, array $keyboard = []): void
+    {
+        $payload = [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'reply_markup' => ['inline_keyboard' => $keyboard],
+        ];
+
+        try {
+            $this->call('editMessageText', $payload);
+        } catch (RequestException $exception) {
+            if (! str_contains($exception->response->body(), 'message is not modified')) {
+                throw $exception;
+            }
+        }
     }
 
     public function answerCallback(string $id): void
