@@ -49,4 +49,22 @@ class AdminTest extends TestCase
 
         $this->actingAs($admin)->get('/admin/deposits')->assertOk()->assertSee('Lịch sử nạp tiền');
     }
+
+    public function test_admin_can_queue_a_notification_for_telegram_customers(): void
+    {
+        $admin = User::factory()->create();
+        $admin->forceFill(['is_admin' => true])->save();
+        $customer = User::factory()->create();
+        $customer->forceFill(['telegram_id' => 123456])->save();
+
+        $this->actingAs($admin)->post('/admin/notifications', [
+            'title' => 'New products',
+            'message' => 'Visit the store for our latest products.',
+            'button_text' => 'Open Store',
+            'button_url' => 'https://t.me/example_bot',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('notification_broadcasts', ['title' => 'New products', 'recipient_count' => 1]);
+        $this->assertDatabaseHas('notification_recipients', ['user_id' => $customer->id, 'status' => 'pending']);
+    }
 }

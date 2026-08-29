@@ -45,6 +45,21 @@ class TelegramClient
         $this->call('sendPhoto', $payload);
     }
 
+    public function sendBroadcast(int|string $chatId, string $message, ?string $imageUrl, array $keyboard = []): void
+    {
+        if ($imageUrl === null) {
+            $this->sendMessage($chatId, $message, $keyboard);
+
+            return;
+        }
+
+        $payload = ['chat_id' => $chatId, 'photo' => $imageUrl, 'caption' => $message, 'parse_mode' => 'HTML'];
+        if ($keyboard !== []) {
+            $payload['reply_markup'] = ['inline_keyboard' => $keyboard];
+        }
+        $this->call('sendPhoto', $payload);
+    }
+
     public function editCard(int|string $chatId, int $messageId, string $caption, array $keyboard = []): void
     {
         $payload = [
