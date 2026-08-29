@@ -2,6 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\DepositMethod;
+use App\Models\DepositRequest;
+use App\Models\User;
 use App\Services\BinancePayClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -29,8 +32,16 @@ class ExampleTest extends TestCase
 
     public function test_start_creates_user_and_sends_welcome_message(): void
     {
-        config(['services.telegram.token' => 'test-token', 'services.telegram.webhook_secret' => 'valid-secret']);
-        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true, 'result' => []])]);
+        config([
+            'services.telegram.token' => 'test-token',
+            'services.telegram.webhook_secret' => 'valid-secret',
+            'services.binance.api_key' => 'key',
+            'services.binance.api_secret' => 'secret',
+        ]);
+        Http::fake([
+            'api.telegram.org/*' => Http::response(['ok' => true, 'result' => []]),
+            'api.binance.com/*' => Http::response(['code' => '000000', 'data' => []]),
+        ]);
         $this->withHeader('X-Telegram-Bot-Api-Secret-Token', 'valid-secret')->postJson('/webhooks/telegram', [
             'update_id' => 1,
             'message' => ['text' => '/start', 'chat' => ['id' => 123], 'from' => ['id' => 123, 'first_name' => 'Test', 'username' => 'tester']],
@@ -62,5 +73,36 @@ class ExampleTest extends TestCase
         $transaction = app(BinancePayClient::class)->findIncoming('451258665332137984', '25', now());
 
         $this->assertSame('P_A_INTERNAL_REFERENCE', $transaction['transactionId']);
+    }
+
+    public function test_transaction_id_can_resume_a_pending_deposit_after_cache_is_cleared(): void
+    {
+        config([
+            'services.telegram.token' => 'test-token',
+            'services.telegram.webhook_secret' => 'valid-secret',
+            'services.binance.api_key' => 'key',
+            'services.binance.api_secret' => 'secret',
+        ]);
+        $user = User::query()->create(['telegram_id' => 123, 'name' => 'Test', 'balance' => 0]);
+        $method = DepositMethod::query()->create(['code' => 'binance_pay', 'name' => 'Binance Pay', 'is_active' => true]);
+        DepositRequest::query()->create([
+            'user_id' => $user->id,
+            'deposit_method_id' => $method->id,
+            'amount' => 0.5,
+            'status' => 'pending',
+            'expires_at' => now()->addMinutes(20),
+        ]);
+        Http::fake([
+            'api.telegram.org/*' => Http::response(['ok' => true, 'result' => []]),
+            'api.binance.com/*' => Http::response(['code' => '000000', 'data' => []]),
+        ]);
+
+        $this->withHeader('X-Telegram-Bot-Api-Secret-Token', 'valid-secret')->postJson('/webhooks/telegram', [
+            'update_id' => 2,
+            'message' => ['text' => 'invalid-order-id', 'chat' => ['id' => 123], 'from' => ['id' => 123, 'first_name' => 'Test']],
+        ])->assertOk();
+
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/sendMessage')
+            && str_contains((string) $request['text'], 'Payment Not Found'));
     }
 }

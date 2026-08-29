@@ -122,7 +122,24 @@ class TelegramWebhookController extends Controller
         $key = 'telegram-state:'.$user->id;
         $state = Cache::get($key);
         if (! is_array($state)) {
-            return;
+            $pendingDeposit = DepositRequest::query()
+                ->where('user_id', $user->id)
+                ->where('status', 'pending')
+                ->where('expires_at', '>', now())
+                ->latest()
+                ->first();
+
+            if ($pendingDeposit && preg_match('/^[A-Za-z0-9_-]{8,100}$/', trim($input))) {
+                $state = ['step' => 'deposit_txid', 'deposit_id' => $pendingDeposit->id];
+                Cache::put($key, $state, $pendingDeposit->expires_at);
+            } else {
+                $this->respond($telegram, $chatId, "<b>SESSION / EXPIRED</b>\n\nThere is no active action waiting for this message. Start a new deposit or return to the dashboard.", [
+                    [['text' => 'New Deposit', 'callback_data' => 'deposit']],
+                    [['text' => 'Dashboard', 'callback_data' => 'home']],
+                ]);
+
+                return;
+            }
         }
 
         if (($state['step'] ?? null) === 'track_order') {
