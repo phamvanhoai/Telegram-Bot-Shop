@@ -29,10 +29,24 @@ class TelegramWebhookController extends Controller
     {
         $secret = (string) config('services.telegram.webhook_secret');
         abort_if($secret === '' || ! hash_equals($secret, (string) $request->header('X-Telegram-Bot-Api-Secret-Token')), 403);
-        $callbackId = data_get($request->all(), 'callback_query.id');
+        $update = $request->all();
+        $callbackId = data_get($update, 'callback_query.id');
+
+        if (is_string($callbackId) && $callbackId !== '') {
+            try {
+                $telegram->showCallbackLoading(
+                    data_get($update, 'callback_query.message.chat.id'),
+                    (int) data_get($update, 'callback_query.message.message_id'),
+                    data_get($update, 'callback_query.message.reply_markup.inline_keyboard', []),
+                    (string) data_get($update, 'callback_query.data'),
+                );
+            } catch (Throwable $exception) {
+                Log::warning('Telegram loading state failed', ['exception' => $exception]);
+            }
+        }
 
         try {
-            $this->handle($request->all(), $telegram);
+            $this->handle($update, $telegram);
         } catch (Throwable $exception) {
             Log::error('Telegram update failed', ['update_id' => $request->integer('update_id'), 'exception' => $exception]);
         } finally {

@@ -202,11 +202,18 @@ class ExampleTest extends TestCase
                 'id' => 'callback-123',
                 'data' => 'home',
                 'from' => ['id' => 654, 'first_name' => 'Button User'],
-                'message' => ['message_id' => 99, 'chat' => ['id' => 654, 'type' => 'private']],
+                'message' => [
+                    'message_id' => 99,
+                    'chat' => ['id' => 654, 'type' => 'private'],
+                    'reply_markup' => ['inline_keyboard' => [[['text' => 'Dashboard', 'callback_data' => 'home']]]],
+                ],
             ],
         ])->assertOk();
 
         $requests = Http::recorded();
+        $loadingRequest = $requests->first()[0];
+        $this->assertStringContainsString('/editMessageReplyMarkup', $loadingRequest->url());
+        $this->assertSame('⏳ Loading…', $loadingRequest['reply_markup']['inline_keyboard'][0][0]['text']);
         $lastRequest = $requests->last()[0];
         $this->assertStringContainsString('/answerCallbackQuery', $lastRequest->url());
         $this->assertArrayNotHasKey('text', $lastRequest->data());
