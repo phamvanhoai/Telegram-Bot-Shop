@@ -9,13 +9,15 @@ use RuntimeException;
 
 class TelegramClient
 {
-    private function http(): PendingRequest
+    private function http(int $timeout = 10, int $retries = 2): PendingRequest
     {
         $token = (string) config('services.telegram.token');
         throw_if($token === '', RuntimeException::class, 'TELEGRAM_BOT_TOKEN is not configured.');
 
-        return Http::baseUrl("https://api.telegram.org/bot{$token}")
-            ->acceptJson()->asJson()->timeout(10)->retry(2, 250);
+        $request = Http::baseUrl("https://api.telegram.org/bot{$token}")
+            ->acceptJson()->asJson()->timeout($timeout);
+
+        return $retries > 0 ? $request->retry($retries, 250) : $request;
     }
 
     public function call(string $method, array $payload = []): array
@@ -48,7 +50,11 @@ class TelegramClient
     public function sendBroadcast(int|string $chatId, string $message, ?string $imageUrl, array $keyboard = []): void
     {
         if ($imageUrl === null) {
-            $this->sendMessage($chatId, $message, $keyboard);
+            $payload = ['chat_id' => $chatId, 'text' => $message, 'parse_mode' => 'HTML'];
+            if ($keyboard !== []) {
+                $payload['reply_markup'] = ['inline_keyboard' => $keyboard];
+            }
+            $this->callBroadcast('sendMessage', $payload);
 
             return;
         }
@@ -57,7 +63,14 @@ class TelegramClient
         if ($keyboard !== []) {
             $payload['reply_markup'] = ['inline_keyboard' => $keyboard];
         }
-        $this->call('sendPhoto', $payload);
+        $this->callBroadcast('sendPhoto', $payload);
+    }
+
+    private function callBroadcast(string $method, array $payload): void
+    {
+        // Broadcast retries are handled by notification_recipients on the next
+        // scheduler run. Keep one slow/unreachable chat from blocking a batch.
+        $this->http(timeout: 5, retries: 0)->post($method, $payload)->throw();
     }
 
     public function editCard(int|string $chatId, int $messageId, string $caption, array $keyboard = []): void
