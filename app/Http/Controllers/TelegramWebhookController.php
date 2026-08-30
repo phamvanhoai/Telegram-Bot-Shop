@@ -34,14 +34,9 @@ class TelegramWebhookController extends Controller
 
         if (is_string($callbackId) && $callbackId !== '') {
             try {
-                $telegram->showCallbackLoading(
-                    data_get($update, 'callback_query.message.chat.id'),
-                    (int) data_get($update, 'callback_query.message.message_id'),
-                    data_get($update, 'callback_query.message.reply_markup.inline_keyboard', []),
-                    (string) data_get($update, 'callback_query.data'),
-                );
+                $telegram->answerCallback($callbackId, 'Loading…');
             } catch (Throwable $exception) {
-                Log::warning('Telegram loading state failed', ['exception' => $exception]);
+                Log::warning('Telegram callback acknowledgement failed', ['exception' => $exception]);
             }
         }
 
@@ -49,16 +44,6 @@ class TelegramWebhookController extends Controller
             $this->handle($update, $telegram);
         } catch (Throwable $exception) {
             Log::error('Telegram update failed', ['update_id' => $request->integer('update_id'), 'exception' => $exception]);
-        } finally {
-            if (is_string($callbackId) && $callbackId !== '') {
-                try {
-                    // Telegram starts its native spinner locally on tap. Keep it
-                    // active until the requested screen has finished rendering.
-                    $telegram->answerCallback($callbackId);
-                } catch (Throwable $exception) {
-                    Log::warning('Telegram callback acknowledgement failed', ['exception' => $exception]);
-                }
-            }
         }
 
         return response()->json(['ok' => true]);

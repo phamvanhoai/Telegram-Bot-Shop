@@ -130,24 +130,6 @@ class TelegramClient
         $this->call('answerCallbackQuery', $payload);
     }
 
-    public function showCallbackLoading(int|string $chatId, int $messageId, array $keyboard, string $action): void
-    {
-        foreach ($keyboard as &$row) {
-            foreach ($row as &$button) {
-                if (($button['callback_data'] ?? null) === $action) {
-                    $button['text'] = '⏳ Loading…';
-                }
-            }
-        }
-        unset($row, $button);
-
-        $this->call('editMessageReplyMarkup', [
-            'chat_id' => $chatId,
-            'message_id' => $messageId,
-            'reply_markup' => ['inline_keyboard' => $keyboard],
-        ]);
-    }
-
     public function isMember(string $channelId, int $userId): bool
     {
         $result = $this->call('getChatMember', ['chat_id' => $channelId, 'user_id' => $userId]);
