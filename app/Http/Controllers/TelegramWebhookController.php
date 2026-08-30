@@ -29,11 +29,22 @@ class TelegramWebhookController extends Controller
     {
         $secret = (string) config('services.telegram.webhook_secret');
         abort_if($secret === '' || ! hash_equals($secret, (string) $request->header('X-Telegram-Bot-Api-Secret-Token')), 403);
+        $callbackId = data_get($request->all(), 'callback_query.id');
 
         try {
             $this->handle($request->all(), $telegram);
         } catch (Throwable $exception) {
             Log::error('Telegram update failed', ['update_id' => $request->integer('update_id'), 'exception' => $exception]);
+        } finally {
+            if (is_string($callbackId) && $callbackId !== '') {
+                try {
+                    // Telegram starts its native spinner locally on tap. Keep it
+                    // active until the requested screen has finished rendering.
+                    $telegram->answerCallback($callbackId);
+                } catch (Throwable $exception) {
+                    Log::warning('Telegram callback acknowledgement failed', ['exception' => $exception]);
+                }
+            }
         }
 
         return response()->json(['ok' => true]);
@@ -46,12 +57,6 @@ class TelegramWebhookController extends Controller
         $from = $message['from'] ?? $callback['from'] ?? null;
         if (! is_array($from) || ! isset($from['id'])) {
             return;
-        }
-
-        // Acknowledge button presses before database and external API work so
-        // Telegram can immediately show feedback while the next screen loads.
-        if ($callback) {
-            $telegram->answerCallback($callback['id'], 'Loading…');
         }
 
         $user = User::query()->updateOrCreate(['telegram_id' => $from['id']], [

@@ -191,7 +191,7 @@ class ExampleTest extends TestCase
             && str_contains((string) $request['caption'], 'STORE / CATALOG'));
     }
 
-    public function test_callback_button_is_acknowledged_with_loading_before_rendering(): void
+    public function test_callback_spinner_is_stopped_after_rendering(): void
     {
         config(['services.telegram.token' => 'test-token', 'services.telegram.webhook_secret' => 'valid-secret']);
         Http::fake(['api.telegram.org/*' => Http::response(['ok' => true, 'result' => []])]);
@@ -207,7 +207,8 @@ class ExampleTest extends TestCase
         ])->assertOk();
 
         $requests = Http::recorded();
-        $this->assertStringContainsString('/answerCallbackQuery', $requests[0][0]->url());
-        $this->assertSame('Loading…', $requests[0][0]['text']);
+        $lastRequest = $requests->last()[0];
+        $this->assertStringContainsString('/answerCallbackQuery', $lastRequest->url());
+        $this->assertArrayNotHasKey('text', $lastRequest->data());
     }
 }
