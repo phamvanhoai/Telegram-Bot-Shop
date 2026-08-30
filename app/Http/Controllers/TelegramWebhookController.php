@@ -48,6 +48,12 @@ class TelegramWebhookController extends Controller
             return;
         }
 
+        // Acknowledge button presses before database and external API work so
+        // Telegram can immediately show feedback while the next screen loads.
+        if ($callback) {
+            $telegram->answerCallback($callback['id'], 'Loading…');
+        }
+
         $user = User::query()->updateOrCreate(['telegram_id' => $from['id']], [
             'name' => trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')) ?: 'Telegram User',
             'telegram_username' => $from['username'] ?? null,
@@ -72,9 +78,6 @@ class TelegramWebhookController extends Controller
             '/support' => 'support',
             default => $action,
         };
-        if ($callback) {
-            $telegram->answerCallback($callback['id']);
-        }
         if ($chatType !== 'private') {
             return;
         }

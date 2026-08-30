@@ -107,9 +107,14 @@ class TelegramClient
         }
     }
 
-    public function answerCallback(string $id): void
+    public function answerCallback(string $id, ?string $text = null): void
     {
-        $this->call('answerCallbackQuery', ['callback_query_id' => $id]);
+        $payload = ['callback_query_id' => $id];
+        if ($text !== null && $text !== '') {
+            $payload['text'] = $text;
+        }
+
+        $this->call('answerCallbackQuery', $payload);
     }
 
     public function isMember(string $channelId, int $userId): bool

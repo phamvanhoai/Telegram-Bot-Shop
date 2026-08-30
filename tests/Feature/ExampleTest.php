@@ -190,4 +190,24 @@ class ExampleTest extends TestCase
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/sendPhoto')
             && str_contains((string) $request['caption'], 'STORE / CATALOG'));
     }
+
+    public function test_callback_button_is_acknowledged_with_loading_before_rendering(): void
+    {
+        config(['services.telegram.token' => 'test-token', 'services.telegram.webhook_secret' => 'valid-secret']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true, 'result' => []])]);
+
+        $this->withHeader('X-Telegram-Bot-Api-Secret-Token', 'valid-secret')->postJson('/webhooks/telegram', [
+            'update_id' => 5,
+            'callback_query' => [
+                'id' => 'callback-123',
+                'data' => 'home',
+                'from' => ['id' => 654, 'first_name' => 'Button User'],
+                'message' => ['message_id' => 99, 'chat' => ['id' => 654, 'type' => 'private']],
+            ],
+        ])->assertOk();
+
+        $requests = Http::recorded();
+        $this->assertStringContainsString('/answerCallbackQuery', $requests[0][0]->url());
+        $this->assertSame('Loading…', $requests[0][0]['text']);
+    }
 }
