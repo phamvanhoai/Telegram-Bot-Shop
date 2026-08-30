@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\NotificationBroadcast;
 use App\Models\Product;
 use App\Models\RequiredChannel;
 use App\Models\User;
@@ -108,5 +109,33 @@ class AdminTest extends TestCase
             'balance_after' => 5.5,
             'description' => 'Admin adjustment: Customer loyalty credit',
         ]);
+    }
+
+    public function test_admin_can_pause_edit_resume_and_cancel_a_broadcast(): void
+    {
+        $admin = User::factory()->create();
+        $admin->forceFill(['is_admin' => true])->save();
+        $broadcast = NotificationBroadcast::query()->create([
+            'created_by' => $admin->id,
+            'title' => 'Original title',
+            'message' => 'Original message',
+            'audience' => 'users',
+            'recipient_count' => 10,
+        ]);
+
+        $this->actingAs($admin)->patch(route('admin.notifications.pause', $broadcast))->assertRedirect();
+        $this->assertSame('paused', $broadcast->refresh()->status);
+
+        $this->actingAs($admin)->put(route('admin.notifications.update', $broadcast), [
+            'title' => 'Updated title',
+            'message' => 'Updated content for remaining recipients.',
+        ])->assertRedirect(route('admin.notifications.index'));
+        $this->assertSame('Updated title', $broadcast->refresh()->title);
+
+        $this->actingAs($admin)->patch(route('admin.notifications.resume', $broadcast))->assertRedirect();
+        $this->assertSame('sending', $broadcast->refresh()->status);
+
+        $this->actingAs($admin)->patch(route('admin.notifications.cancel', $broadcast))->assertRedirect();
+        $this->assertSame('cancelled', $broadcast->refresh()->status);
     }
 }

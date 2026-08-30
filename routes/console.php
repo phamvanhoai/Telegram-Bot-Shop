@@ -21,9 +21,14 @@ Schedule::call(function (): void {
 Schedule::call(function (): void {
     NotificationRecipient::query()->with(['broadcast', 'user'])
         // Eight five-second requests fit safely inside the one-minute cron slot.
-        ->where('status', 'pending')->oldest()->limit(8)->get()
+        ->where('status', 'pending')
+        ->whereHas('broadcast', fn ($query) => $query->where('status', 'sending'))
+        ->oldest()->limit(8)->get()
         ->each(function (NotificationRecipient $recipient): void {
-            $broadcast = $recipient->broadcast;
+            $broadcast = $recipient->broadcast->refresh();
+            if ($broadcast->status !== 'sending') {
+                return;
+            }
             $keyboard = $broadcast->button_text && $broadcast->button_url
                 ? [[['text' => $broadcast->button_text, 'url' => $broadcast->button_url]]]
                 : [];
@@ -50,6 +55,7 @@ Schedule::call(function (): void {
                 'sent_count' => $sent,
                 'failed_count' => $failed,
                 'completed_at' => ($sent + $failed) >= $broadcast->recipient_count ? now() : null,
+                'status' => ($sent + $failed) >= $broadcast->recipient_count ? 'completed' : 'sending',
             ]);
         });
 })->name('send-telegram-broadcasts')->everyMinute()->withoutOverlapping(5);

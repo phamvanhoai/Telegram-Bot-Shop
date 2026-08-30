@@ -31,6 +31,11 @@ Route::prefix('admin')->name('admin.')->group(function (): void {
         Route::get('/orders', [AdminOrderController::class, 'index'])->name('orders.index');
         Route::get('/notifications', [AdminNotificationController::class, 'index'])->name('notifications.index');
         Route::post('/notifications', [AdminNotificationController::class, 'store'])->name('notifications.store');
+        Route::get('/notifications/{notification}/edit', [AdminNotificationController::class, 'edit'])->name('notifications.edit');
+        Route::put('/notifications/{notification}', [AdminNotificationController::class, 'update'])->name('notifications.update');
+        Route::patch('/notifications/{notification}/pause', [AdminNotificationController::class, 'pause'])->name('notifications.pause');
+        Route::patch('/notifications/{notification}/resume', [AdminNotificationController::class, 'resume'])->name('notifications.resume');
+        Route::patch('/notifications/{notification}/cancel', [AdminNotificationController::class, 'cancel'])->name('notifications.cancel');
         Route::patch('/orders/{order}', [AdminOrderController::class, 'update'])->name('orders.update');
         Route::post('/logout', [AdminAuthController::class, 'destroy'])->name('logout');
     });

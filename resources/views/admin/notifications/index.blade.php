@@ -15,7 +15,24 @@
   <button onclick="return confirm('Xác nhận gửi thông báo này cho tất cả người dùng?')" class="mt-6 rounded-xl bg-cyan-400 px-6 py-3 font-bold text-slate-950">Xếp hàng gửi</button>
  </form>
  <div><h2 class="mb-5 text-xl font-bold">Lịch sử gửi</h2><div class="space-y-4">
- @forelse($broadcasts as $item)<div class="rounded-2xl border border-white/10 bg-slate-900 p-5"><div class="flex items-start justify-between gap-4"><div><h3 class="font-bold">{{ $item->title }}</h3><p class="mt-1 text-sm text-slate-500">{{ $item->created_at->format('d/m/Y H:i') }} · {{ strtoupper($item->audience) }}</p></div><span class="rounded-full px-3 py-1 text-xs {{ $item->completed_at?'bg-emerald-400/10 text-emerald-300':'bg-cyan-400/10 text-cyan-300' }}">{{ $item->completed_at?'HOÀN TẤT':'ĐANG GỬI' }}</span></div><p class="mt-4 line-clamp-3 text-sm text-slate-300">{{ strip_tags($item->message) }}</p><div class="mt-4 flex gap-5 text-sm"><span>Người nhận <b>{{ $item->recipient_count }}</b></span><span class="text-emerald-300">Đã gửi <b>{{ $item->sent_count }}</b></span><span class="text-rose-300">Lỗi <b>{{ $item->failed_count }}</b></span></div></div>
+ @forelse($broadcasts as $item)
+ @php
+  $statusLabels = ['sending' => 'ĐANG GỬI', 'paused' => 'TẠM DỪNG', 'cancelled' => 'ĐÃ HỦY', 'completed' => 'HOÀN TẤT'];
+  $statusClasses = ['sending' => 'bg-cyan-400/10 text-cyan-300', 'paused' => 'bg-amber-400/10 text-amber-300', 'cancelled' => 'bg-rose-400/10 text-rose-300', 'completed' => 'bg-emerald-400/10 text-emerald-300'];
+ @endphp
+ <div class="rounded-2xl border border-white/10 bg-slate-900 p-5">
+  <div class="flex items-start justify-between gap-4"><div><h3 class="font-bold">{{ $item->title }}</h3><p class="mt-1 text-sm text-slate-500">{{ $item->created_at->format('d/m/Y H:i') }} · {{ strtoupper($item->audience) }}</p></div><span class="rounded-full px-3 py-1 text-xs {{ $statusClasses[$item->status] ?? $statusClasses['sending'] }}">{{ $statusLabels[$item->status] ?? 'ĐANG GỬI' }}</span></div>
+  <p class="mt-4 line-clamp-3 text-sm text-slate-300">{{ strip_tags($item->message) }}</p>
+  <div class="mt-4 flex flex-wrap gap-5 text-sm"><span>Người nhận <b>{{ $item->recipient_count }}</b></span><span class="text-emerald-300">Đã gửi <b>{{ $item->sent_count }}</b></span><span class="text-rose-300">Lỗi <b>{{ $item->failed_count }}</b></span><span class="text-slate-400">Còn lại <b>{{ max(0, $item->recipient_count - $item->sent_count - $item->failed_count) }}</b></span></div>
+  @if(in_array($item->status, ['sending', 'paused'], true))
+  <div class="mt-5 flex flex-wrap gap-2">
+   <a href="{{ route('admin.notifications.edit', $item) }}" class="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold hover:bg-white/5">Edit</a>
+   @if($item->status === 'sending')<form method="post" action="{{ route('admin.notifications.pause', $item) }}">@csrf @method('PATCH')<button class="rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-bold text-amber-300">Pause</button></form>
+   @else<form method="post" action="{{ route('admin.notifications.resume', $item) }}">@csrf @method('PATCH')<button class="rounded-lg border border-emerald-400/30 px-3 py-2 text-xs font-bold text-emerald-300">Resume</button></form>@endif
+   <form method="post" action="{{ route('admin.notifications.cancel', $item) }}" onsubmit="return confirm('Cancel this broadcast? Unsent recipients will not receive it.')">@csrf @method('PATCH')<button class="rounded-lg border border-rose-400/30 px-3 py-2 text-xs font-bold text-rose-300">Cancel sending</button></form>
+  </div>
+  @endif
+ </div>
  @empty<div class="rounded-2xl border border-dashed border-white/10 p-10 text-center text-slate-500">Chưa gửi thông báo nào.</div>@endforelse
  </div><div class="mt-6">{{ $broadcasts->links() }}</div></div>
 </div>

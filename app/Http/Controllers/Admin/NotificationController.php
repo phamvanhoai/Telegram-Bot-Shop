@@ -70,4 +70,49 @@ class NotificationController extends Controller
 
         return back()->with('success', 'Thông báo đã được đưa vào hàng đợi gửi.');
     }
+
+    public function edit(NotificationBroadcast $notification): View
+    {
+        abort_if(in_array($notification->status, ['cancelled', 'completed'], true), 422, 'A finished broadcast cannot be edited.');
+
+        return view('admin.notifications.edit', ['notification' => $notification]);
+    }
+
+    public function update(Request $request, NotificationBroadcast $notification): RedirectResponse
+    {
+        abort_if(in_array($notification->status, ['cancelled', 'completed'], true), 422, 'A finished broadcast cannot be edited.');
+        $notification->update($request->validate([
+            'title' => ['required', 'string', 'max:120'],
+            'message' => ['required', 'string', 'max:1000'],
+            'image_url' => ['nullable', 'url:https', 'max:2000'],
+            'button_text' => ['nullable', 'required_with:button_url', 'string', 'max:64'],
+            'button_url' => ['nullable', 'required_with:button_text', 'url:https', 'max:2000'],
+        ]));
+
+        return redirect()->route('admin.notifications.index')->with('success', 'Broadcast updated. Remaining recipients will receive the new content.');
+    }
+
+    public function pause(NotificationBroadcast $notification): RedirectResponse
+    {
+        abort_unless($notification->status === 'sending', 422, 'Only sending broadcasts can be paused.');
+        $notification->update(['status' => 'paused']);
+
+        return back()->with('success', 'Broadcast paused.');
+    }
+
+    public function resume(NotificationBroadcast $notification): RedirectResponse
+    {
+        abort_unless($notification->status === 'paused', 422, 'Only paused broadcasts can be resumed.');
+        $notification->update(['status' => 'sending']);
+
+        return back()->with('success', 'Broadcast resumed.');
+    }
+
+    public function cancel(NotificationBroadcast $notification): RedirectResponse
+    {
+        abort_unless(in_array($notification->status, ['sending', 'paused'], true), 422, 'This broadcast has already finished.');
+        $notification->update(['status' => 'cancelled']);
+
+        return back()->with('success', 'Broadcast cancelled. Pending recipients will not receive it.');
+    }
 }
