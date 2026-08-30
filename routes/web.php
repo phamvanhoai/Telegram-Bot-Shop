@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\DepositController as AdminDepositController;
 use App\Http\Controllers\Admin\NotificationController as AdminNotificationController;
 use App\Http\Controllers\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Admin\ProductController as AdminProductController;
+use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\TelegramWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,6 +23,10 @@ Route::prefix('admin')->name('admin.')->group(function (): void {
     Route::middleware(['auth', 'admin'])->group(function (): void {
         Route::get('/', AdminDashboardController::class)->name('dashboard');
         Route::resource('products', AdminProductController::class)->except('show');
+        Route::get('/users', [AdminUserController::class, 'index'])->name('users.index');
+        Route::get('/users/{user}', [AdminUserController::class, 'show'])->name('users.show');
+        Route::patch('/users/{user}/block', [AdminUserController::class, 'toggleBlock'])->name('users.block');
+        Route::post('/users/{user}/balance', [AdminUserController::class, 'adjustBalance'])->name('users.balance');
         Route::get('/deposits', [AdminDepositController::class, 'index'])->name('deposits.index');
         Route::get('/orders', [AdminOrderController::class, 'index'])->name('orders.index');
         Route::get('/notifications', [AdminNotificationController::class, 'index'])->name('notifications.index');

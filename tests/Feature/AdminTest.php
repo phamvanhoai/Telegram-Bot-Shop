@@ -87,4 +87,26 @@ class AdminTest extends TestCase
         $this->assertDatabaseHas('notification_recipients', ['chat_id' => '-1002', 'recipient_name' => 'Shop Group']);
         $this->assertDatabaseCount('notification_recipients', 2);
     }
+
+    public function test_admin_can_view_users_and_adjust_a_wallet_with_ledger_entry(): void
+    {
+        $admin = User::factory()->create();
+        $admin->forceFill(['is_admin' => true])->save();
+        $customer = User::factory()->create();
+        $customer->forceFill(['telegram_id' => 998877, 'balance' => '2.00000000'])->save();
+
+        $this->actingAs($admin)->get('/admin/users')->assertOk()->assertSee('998877');
+        $this->actingAs($admin)->post('/admin/users/'.$customer->id.'/balance', [
+            'amount' => '3.5',
+            'reason' => 'Customer loyalty credit',
+        ])->assertRedirect();
+
+        $this->assertSame('5.50000000', (string) $customer->refresh()->balance);
+        $this->assertDatabaseHas('wallet_transactions', [
+            'user_id' => $customer->id,
+            'type' => 'adjustment',
+            'balance_after' => 5.5,
+            'description' => 'Admin adjustment: Customer loyalty credit',
+        ]);
+    }
 }
